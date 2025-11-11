@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Estilos personalizados para el INN */
+@layer components {
+  .inn-card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100;
+  }
+  
+  .inn-btn-primary {
+    @apply bg-inn-green-600 text-white px-4 py-2 rounded-lg hover:bg-inn-green-700 transition duration-200 font-medium;
+  }
+  
+  .inn-badge-success {
+    @apply px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium;
+  }
+}
