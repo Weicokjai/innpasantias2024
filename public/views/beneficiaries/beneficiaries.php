@@ -1,86 +1,23 @@
 <?php
+session_start();
 $currentPage = 'Beneficiarios';
 $currentUser = ['name' => 'Dr. Carlos Méndez', 'role' => 'Nutriólogo'];
 
-// Datos de ejemplo para la tabla
-$beneficiarios = [
-    [
-        'id' => 1,
-        'municipio' => 'Municipio A',
-        'parroquia' => 'Parroquia Central',
-        'sector' => 'Sector Norte',
-        'cedula_representante' => 'V-12345678',
-        'nombre_representante' => 'María González',
-        'cedula_beneficiario' => 'V-87654321',
-        'nombre_beneficiario' => 'Ana González',
-        'fecha_nacimiento' => '2015-03-15',
-        'edad' => '8 años',
-        'peso' => '28.5',
-        'talla' => '1.25',
-        'cbi' => '14.2',
-        'csi' => '52.1',
-        'imc' => '18.2',
-        'caso' => 'A',
-        'estado' => 'activo'
-    ],
-    [
-        'id' => 2,
-        'municipio' => 'Municipio B',
-        'parroquia' => 'Parroquia Este',
-        'sector' => 'Sector Sur',
-        'cedula_representante' => 'V-23456789',
-        'nombre_representante' => 'Carlos Rodríguez',
-        'cedula_beneficiario' => 'V-98765432',
-        'nombre_beneficiario' => 'Luis Rodríguez',
-        'fecha_nacimiento' => '2017-08-20',
-        'edad' => '6 años',
-        'peso' => '22.0',
-        'talla' => '1.15',
-        'cbi' => '13.8',
-        'csi' => '50.3',
-        'imc' => '16.6',
-        'caso' => 'B',
-        'estado' => 'activo'
-    ],
-    [
-        'id' => 3,
-        'municipio' => 'Municipio A',
-        'parroquia' => 'Parroquia Oeste',
-        'sector' => 'Sector Centro',
-        'cedula_representante' => 'V-34567890',
-        'nombre_representante' => 'Elena Martínez',
-        'cedula_beneficiario' => 'V-87654329',
-        'nombre_beneficiario' => 'Sofía Martínez',
-        'fecha_nacimiento' => '2013-11-10',
-        'edad' => '10 años',
-        'peso' => '32.0',
-        'talla' => '1.35',
-        'cbi' => '15.1',
-        'csi' => '54.2',
-        'imc' => '17.5',
-        'caso' => 'A',
-        'estado' => 'activo'
-    ],
-    [
-        'id' => 4,
-        'municipio' => 'Municipio C',
-        'parroquia' => 'Parroquia Norte',
-        'sector' => 'Sector Este',
-        'cedula_representante' => 'V-45678901',
-        'nombre_representante' => 'Roberto Sánchez',
-        'cedula_beneficiario' => 'V-76543210',
-        'nombre_beneficiario' => 'Pedro Sánchez',
-        'fecha_nacimiento' => '2016-05-25',
-        'edad' => '7 años',
-        'peso' => '24.5',
-        'talla' => '1.20',
-        'cbi' => '14.0',
-        'csi' => '51.0',
-        'imc' => '17.0',
-        'caso' => 'B',
-        'estado' => 'inactivo'
-    ]
-];
+// Incluir dependencias - RUTAS CORRECTAS desde views/beneficiaries/
+include_once '../../config/database.php';
+include_once '../../components/beneficiaries/BeneficiarioModel.php';
+include_once '../../components/beneficiaries/BeneficiarioController.php';
+
+// Inicializar
+$database = new Database();
+$db = $database->getConnection();
+$controller = new BeneficiarioController($db);
+
+// Manejar solicitudes
+$controller->handleRequest();
+
+// Obtener datos
+$beneficiarios = $controller->getAllBeneficiariosFormatted();
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -88,98 +25,29 @@ $beneficiarios = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Beneficiarios - Instituto Nacional de Nutrición</title>
-    <link href="../../assets/css/output.css" rel="stylesheet">
+    <link href="/innprojec/public/assets/css/output.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.tailwindcss.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
     <style>
-        /* Estilos de respaldo para el modal */
-        .modal-backup {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 10000;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        .modal-content-backup {
-            background: white;
-            border-radius: 12px;
-            width: 100%;
-            max-width: 800px;
-            max-height: 90vh;
-            overflow: auto;
-            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
-        }
-        
-        /* Estilos para DataTables */
-        .dataTables_wrapper .dataTables_length,
-        .dataTables_wrapper .dataTables_filter,
-        .dataTables_wrapper .dataTables_info,
-        .dataTables_wrapper .dataTables_processing,
-        .dataTables_wrapper .dataTables_paginate {
-            color: #6b7280;
-        }
-        
-        .dataTables_wrapper .dataTables_filter input {
-            border: 1px solid #d1d5db;
-            border-radius: 0.5rem;
-            padding: 0.5rem;
-            margin-left: 0.5rem;
-        }
-        
-        .dataTables_wrapper .dataTables_length select {
-            border: 1px solid #d1d5db;
-            border-radius: 0.5rem;
-            padding: 0.5rem;
-        }
-        
-        .dataTables_wrapper .dataTables_paginate .paginate_button {
-            border: 1px solid #d1d5db;
-            padding: 0.5rem 1rem;
-            margin-left: 0.25rem;
-            border-radius: 0.375rem;
-        }
-        
-        .dataTables_wrapper .dataTables_paginate .paginate_button.current {
-            background: #16a34a;
-            color: white !important;
-            border-color: #16a34a;
-        }
-        
-        .dataTables_wrapper .dataTables_paginate .paginate_button:hover {
-            background: #e5e7eb;
-            border-color: #d1d5db;
-        }
-        
-        /* Mejoras visuales para la tabla */
-        table.dataTable tbody tr {
-            background-color: white;
-        }
-        
-        table.dataTable tbody tr:hover {
-            background-color: #f9fafb !important;
-        }
-        
-        table.dataTable thead th {
-            border-bottom: 1px solid #e5e7eb;
-        }
+        .modal-backup { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; padding: 20px; }
+        .modal-content-backup { background: white; border-radius: 12px; width: 100%; max-width: 800px; max-height: 90vh; overflow: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .dataTables_wrapper .dataTables_filter input { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem; margin-left: 0.5rem; }
+        .dataTables_wrapper .dataTables_length select { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem; }
+        .dataTables_wrapper .dataTables_paginate .paginate_button { border: 1px solid #d1d5db; padding: 0.5rem 1rem; margin-left: 0.25rem; border-radius: 0.375rem; }
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current { background: #16a34a; color: white !important; border-color: #16a34a; }
+        .dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #e5e7eb; border-color: #d1d5db; }
+        table.dataTable { width: 100% !important; }
+        .dataTables_wrapper { width: 100% !important; }
+        table.dataTable thead th { border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+        table.dataTable tbody td { white-space: nowrap; }
     </style>
 </head>
 <body class="bg-gray-100">
     <div class="flex h-screen">
-        <!-- Sidebar -->
         <?php include '../../components/sidebar.php'; ?>
 
-        <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden">
-            <!-- Header -->
             <header class="bg-white shadow-sm p-4">
                 <div class="flex justify-between items-center">
                     <h2 class="text-xl font-semibold text-gray-800">Beneficiarios</h2>
@@ -191,8 +59,14 @@ $beneficiarios = [
                 </div>
             </header>
 
-            <!-- Main Content Area -->
-            <main class="flex-1 overflow-y-auto p-6">
+            <main class="flex-1 overflow-x-auto p-6">
+                <!-- Mostrar mensajes -->
+                <?php if(isset($_SESSION['message'])): ?>
+                <div class="bg-<?php echo $_SESSION['message_type'] === 'success' ? 'green' : 'red'; ?>-100 border border-<?php echo $_SESSION['message_type'] === 'success' ? 'green' : 'red'; ?>-400 text-<?php echo $_SESSION['message_type'] === 'success' ? 'green' : 'red'; ?>-700 px-4 py-3 rounded mb-6">
+                    <?php echo $_SESSION['message']; ?>
+                </div>
+                <?php unset($_SESSION['message']); unset($_SESSION['message_type']); endif; ?>
+
                 <!-- Filtros -->
                 <div class="bg-white rounded-xl shadow p-6 mb-6">
                     <h3 class="text-lg font-semibold mb-4">Filtros</h3>
@@ -201,17 +75,15 @@ $beneficiarios = [
                             <label class="block text-sm font-medium text-gray-700 mb-2">Municipio</label>
                             <select id="filtro-municipio" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                 <option value="">Todos los municipios</option>
-                                <option value="Municipio A">Municipio A</option>
-                                <option value="Municipio B">Municipio B</option>
-                                <option value="Municipio C">Municipio C</option>
+                                <option value="PALAVECINO">PALAVECINO</option>
                             </select>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Caso</label>
                             <select id="filtro-caso" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                 <option value="">Todos los casos</option>
-                                <option value="A">Caso A</option>
-                                <option value="B">Caso B</option>
+                                <option value="1">Caso 1</option>
+                                <option value="2">Caso 2</option>
                             </select>
                         </div>
                         <div>
@@ -237,30 +109,19 @@ $beneficiarios = [
                 <div class="bg-white rounded-xl shadow">
                     <div class="p-6 border-b border-gray-200">
                         <h3 class="text-lg font-semibold">Lista de Beneficiarios</h3>
+                        <p class="text-sm text-gray-600">Total: <?php echo count($beneficiarios); ?> registros encontrados</p>
                     </div>
                     
                     <div class="p-6">
-                        <table id="tabla-beneficiarios" class="w-full display">
+                        <table id="tabla-beneficiarios" class="w-full display" style="width: 100% !important;">
                             <thead>
                                 <tr class="bg-gray-50">
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Ubicación
-                                    </th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Representante
-                                    </th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Beneficiario
-                                    </th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Antropometría
-                                    </th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Caso
-                                    </th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Acciones
-                                    </th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Representante</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficiario</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Antropometría</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Caso</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -286,7 +147,7 @@ $beneficiarios = [
                                                 <i class="fas fa-child text-blue-600 text-xs"></i>
                                             </div>
                                             <div class="ml-3">
-                                                <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($beneficiario['nombre_beneficiario']); ?></div>
+                                                <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($beneficiario['nombre_beneficiario'] . ' ' . $beneficiario['apellido_beneficiario']); ?></div>
                                                 <div class="text-sm text-gray-500"><?php echo htmlspecialchars($beneficiario['cedula_beneficiario']); ?></div>
                                                 <div class="text-xs text-gray-400"><?php echo htmlspecialchars($beneficiario['edad']); ?></div>
                                             </div>
@@ -296,22 +157,21 @@ $beneficiarios = [
                                     <!-- Antropometría -->
                                     <td class="px-4 py-3 whitespace-nowrap">
                                         <div class="text-xs">
-                                            <div class="flex justify-between"><span>Peso:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['peso']); ?> kg</span></div>
-                                            <div class="flex justify-between"><span>Talla:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['talla']); ?> m</span></div>
-                                            <div class="flex justify-between"><span>CBI:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['cbi']); ?> cm</span></div>
-                                            <div class="flex justify-between"><span>CSI:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['csi']); ?> cm</span></div>
+                                            <div class="flex justify-between"><span>Peso:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['peso']); ?></span></div>
+                                            <div class="flex justify-between"><span>Talla:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['talla']); ?></span></div>
+                                            <div class="flex justify-between"><span>CBI:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['cbi']); ?></span></div>
                                             <div class="flex justify-between"><span>IMC:</span> <span class="font-medium"><?php echo htmlspecialchars($beneficiario['imc']); ?></span></div>
                                         </div>
                                     </td>
                                     
                                     <!-- Caso -->
                                     <td class="px-4 py-3 whitespace-nowrap">
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $beneficiario['caso'] === 'A' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'; ?>">
-                                            Caso <?php echo $beneficiario['caso']; ?>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $beneficiario['caso'] === '1' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'; ?>">
+                                            Caso <?php echo htmlspecialchars($beneficiario['caso']); ?>
                                         </span>
                                         <div class="text-xs text-gray-500 mt-1">
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium <?php echo $beneficiario['estado'] === 'activo' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'; ?>">
-                                                <?php echo $beneficiario['estado'] === 'activo' ? 'Activo' : 'Inactivo'; ?>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                                <?php echo htmlspecialchars($beneficiario['estado']); ?>
                                             </span>
                                         </div>
                                     </td>
@@ -319,17 +179,13 @@ $beneficiarios = [
                                     <!-- Acciones -->
                                     <td class="px-4 py-3 whitespace-nowrap text-sm font-medium">
                                         <div class="flex space-x-1">
-                                            <button onclick="editarBeneficiario(<?php echo $beneficiario['id']; ?>)" 
-                                                    class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" 
-                                                    title="Editar">
+                                            <button onclick="editarBeneficiario('<?php echo $beneficiario['cedula_beneficiario']; ?>')" class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" title="Editar">
                                                 <i class="fas fa-edit"></i>
                                             </button>
                                             <button class="text-orange-600 hover:text-orange-900 transition duration-150 p-1" title="Asignar beneficio">
                                                 <i class="fas fa-gift"></i>
                                             </button>
-                                            <button onclick="eliminarBeneficiario(<?php echo $beneficiario['id']; ?>, '<?php echo $beneficiario['nombre_beneficiario']; ?>')" 
-                                                    class="text-red-600 hover:text-red-900 transition duration-150 p-1" 
-                                                    title="Eliminar">
+                                            <button onclick="eliminarBeneficiario('<?php echo $beneficiario['cedula_beneficiario']; ?>', '<?php echo htmlspecialchars($beneficiario['nombre_beneficiario']); ?>')" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
                                                 <i class="fas fa-trash"></i>
                                             </button>
                                         </div>
@@ -347,7 +203,6 @@ $beneficiarios = [
     <!-- Modal para Nuevo Beneficiario -->
     <div id="nuevoBeneficiarioModal" class="modal-backup">
         <div class="modal-content-backup">
-            <!-- Header del Modal -->
             <div class="bg-green-600 text-white p-4 rounded-t-xl flex justify-between items-center">
                 <h3 class="text-xl font-semibold">Nuevo Beneficiario</h3>
                 <button onclick="cerrarModal()" class="text-white hover:text-gray-200 transition duration-150">
@@ -355,64 +210,34 @@ $beneficiarios = [
                 </button>
             </div>
             
-            <!-- Formulario -->
-            <form id="formNuevoBeneficiario" class="p-6">
-                <!-- Información de Ubicación -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información de Ubicación</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label for="municipio" class="block text-sm font-medium text-gray-700 mb-2">Municipio *</label>
-                            <select id="municipio" name="municipio" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar municipio</option>
-                                <option value="Municipio A">Municipio A</option>
-                                <option value="Municipio B">Municipio B</option>
-                                <option value="Municipio C">Municipio C</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="parroquia" class="block text-sm font-medium text-gray-700 mb-2">Parroquia *</label>
-                            <select id="parroquia" name="parroquia" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar parroquia</option>
-                                <option value="Parroquia Central">Parroquia Central</option>
-                                <option value="Parroquia Este">Parroquia Este</option>
-                                <option value="Parroquia Oeste">Parroquia Oeste</option>
-                                <option value="Parroquia Norte">Parroquia Norte</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="sector" class="block text-sm font-medium text-gray-700 mb-2">Sector *</label>
-                            <input type="text" id="sector" name="sector" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Sector Norte">
-                        </div>
-                    </div>
-                </div>
+            <form id="formNuevoBeneficiario" method="POST" class="p-6">
+                <input type="hidden" name="action" value="create">
                 
-                <!-- Información del Representante -->
                 <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Representante</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label for="cedula_representante" class="block text-sm font-medium text-gray-700 mb-2">Cédula *</label>
-                            <input type="text" id="cedula_representante" name="cedula_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-12345678">
-                        </div>
-                        <div>
-                            <label for="nombre_representante" class="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                            <input type="text" id="nombre_representante" name="nombre_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: María González">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Información del Beneficiario -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Beneficiario</h4>
+                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información Personal</h4>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label for="cedula_beneficiario" class="block text-sm font-medium text-gray-700 mb-2">Cédula *</label>
-                            <input type="text" id="cedula_beneficiario" name="cedula_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-87654321">
+                            <input type="text" id="cedula_beneficiario" name="cedula_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-12345678">
                         </div>
                         <div>
-                            <label for="nombre_beneficiario" class="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                            <input type="text" id="nombre_beneficiario" name="nombre_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Ana González">
+                            <label for="genero" class="block text-sm font-medium text-gray-700 mb-2">Género *</label>
+                            <select id="genero" name="genero" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <option value="">Seleccionar género</option>
+                                <option value="MASCULINO">MASCULINO</option>
+                                <option value="FEMENINO">FEMENINO</option>
+                                <option value="OTRO">OTRO</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label for="nombres" class="block text-sm font-medium text-gray-700 mb-2">Nombres *</label>
+                            <input type="text" id="nombres" name="nombres" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: María José">
+                        </div>
+                        <div>
+                            <label for="apellidos" class="block text-sm font-medium text-gray-700 mb-2">Apellidos *</label>
+                            <input type="text" id="apellidos" name="apellidos" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: González Pérez">
                         </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -427,17 +252,16 @@ $beneficiarios = [
                     </div>
                 </div>
                 
-                <!-- Información Antropométrica -->
                 <div class="mb-6">
                     <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información Antropométrica</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label for="peso" class="block text-sm font-medium text-gray-700 mb-2">Peso (kg) *</label>
-                            <input type="number" id="peso" name="peso" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 28.5">
+                            <label for="peso_kg" class="block text-sm font-medium text-gray-700 mb-2">Peso (kg) *</label>
+                            <input type="number" id="peso_kg" name="peso_kg" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 28.5">
                         </div>
                         <div>
-                            <label for="talla" class="block text-sm font-medium text-gray-700 mb-2">Talla (m) *</label>
-                            <input type="number" id="talla" name="talla" step="0.01" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 1.25">
+                            <label for="talla_cm" class="block text-sm font-medium text-gray-700 mb-2">Talla (cm) *</label>
+                            <input type="number" id="talla_cm" name="talla_cm" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 125.0">
                         </div>
                         <div>
                             <label for="imc" class="block text-sm font-medium text-gray-700 mb-2">IMC</label>
@@ -446,40 +270,20 @@ $beneficiarios = [
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div>
-                            <label for="cbi" class="block text-sm font-medium text-gray-700 mb-2">Circunferencia Braquial (cm)</label>
-                            <input type="number" id="cbi" name="cbi" step="0.1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 14.2">
+                            <label for="cbi_mm" class="block text-sm font-medium text-gray-700 mb-2">Circunferencia Braquial (mm)</label>
+                            <input type="number" id="cbi_mm" name="cbi_mm" step="0.1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 142.0">
                         </div>
                         <div>
-                            <label for="csi" class="block text-sm font-medium text-gray-700 mb-2">Circunferencia de la Cintura (cm)</label>
-                            <input type="number" id="csi" name="csi" step="0.1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 52.1">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Clasificación y Estado -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Clasificación y Estado</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label for="caso" class="block text-sm font-medium text-gray-700 mb-2">Tipo de Caso *</label>
-                            <select id="caso" name="caso" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar caso</option>
-                                <option value="A">Caso A</option>
-                                <option value="B">Caso B</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="estado" class="block text-sm font-medium text-gray-700 mb-2">Estado *</label>
-                            <select id="estado" name="estado" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar estado</option>
-                                <option value="activo">Activo</option>
-                                <option value="inactivo">Inactivo</option>
+                            <label for="situacion_dx" class="block text-sm font-medium text-gray-700 mb-2">Situación DX *</label>
+                            <select id="situacion_dx" name="situacion_dx" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <option value="">Seleccionar situación</option>
+                                <option value="1">Caso 1</option>
+                                <option value="2">Caso 2</option>
                             </select>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Botones de Acción -->
                 <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200">
                     <button type="button" onclick="cerrarModal()" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-200">
                         Cancelar
@@ -492,163 +296,11 @@ $beneficiarios = [
         </div>
     </div>
 
-    <!-- Modal para Editar Beneficiario -->
-    <div id="editarBeneficiarioModal" class="modal-backup">
-        <div class="modal-content-backup">
-            <!-- Header del Modal -->
-            <div class="bg-blue-600 text-white p-4 rounded-t-xl flex justify-between items-center">
-                <h3 class="text-xl font-semibold">Editar Beneficiario</h3>
-                <button onclick="cerrarModalEditar()" class="text-white hover:text-gray-200 transition duration-150">
-                    <i class="fas fa-times text-xl"></i>
-                </button>
-            </div>
-            
-            <!-- Formulario -->
-            <form id="formEditarBeneficiario" class="p-6">
-                <input type="hidden" id="editar_id" name="id">
-                
-                <!-- Información de Ubicación -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información de Ubicación</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label for="editar_municipio" class="block text-sm font-medium text-gray-700 mb-2">Municipio *</label>
-                            <select id="editar_municipio" name="municipio" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Seleccionar municipio</option>
-                                <option value="Municipio A">Municipio A</option>
-                                <option value="Municipio B">Municipio B</option>
-                                <option value="Municipio C">Municipio C</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="editar_parroquia" class="block text-sm font-medium text-gray-700 mb-2">Parroquia *</label>
-                            <select id="editar_parroquia" name="parroquia" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Seleccionar parroquia</option>
-                                <option value="Parroquia Central">Parroquia Central</option>
-                                <option value="Parroquia Este">Parroquia Este</option>
-                                <option value="Parroquia Oeste">Parroquia Oeste</option>
-                                <option value="Parroquia Norte">Parroquia Norte</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="editar_sector" class="block text-sm font-medium text-gray-700 mb-2">Sector *</label>
-                            <input type="text" id="editar_sector" name="sector" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: Sector Norte">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Información del Representante -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Representante</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label for="editar_cedula_representante" class="block text-sm font-medium text-gray-700 mb-2">Cédula *</label>
-                            <input type="text" id="editar_cedula_representante" name="cedula_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: V-12345678">
-                        </div>
-                        <div>
-                            <label for="editar_nombre_representante" class="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                            <input type="text" id="editar_nombre_representante" name="nombre_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: María González">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Información del Beneficiario -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Beneficiario</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label for="editar_cedula_beneficiario" class="block text-sm font-medium text-gray-700 mb-2">Cédula *</label>
-                            <input type="text" id="editar_cedula_beneficiario" name="cedula_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: V-87654321">
-                        </div>
-                        <div>
-                            <label for="editar_nombre_beneficiario" class="block text-sm font-medium text-gray-700 mb-2">Nombre Completo *</label>
-                            <input type="text" id="editar_nombre_beneficiario" name="nombre_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: Ana González">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        <div>
-                            <label for="editar_fecha_nacimiento" class="block text-sm font-medium text-gray-700 mb-2">Fecha de Nacimiento *</label>
-                            <input type="date" id="editar_fecha_nacimiento" name="fecha_nacimiento" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <div>
-                            <label for="editar_edad" class="block text-sm font-medium text-gray-700 mb-2">Edad</label>
-                            <input type="text" id="editar_edad" name="edad" readonly class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-100" placeholder="Se calculará automáticamente">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Información Antropométrica -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información Antropométrica</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label for="editar_peso" class="block text-sm font-medium text-gray-700 mb-2">Peso (kg) *</label>
-                            <input type="number" id="editar_peso" name="peso" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 28.5">
-                        </div>
-                        <div>
-                            <label for="editar_talla" class="block text-sm font-medium text-gray-700 mb-2">Talla (m) *</label>
-                            <input type="number" id="editar_talla" name="talla" step="0.01" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 1.25">
-                        </div>
-                        <div>
-                            <label for="editar_imc" class="block text-sm font-medium text-gray-700 mb-2">IMC</label>
-                            <input type="text" id="editar_imc" name="imc" readonly class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-100" placeholder="Se calculará automáticamente">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        <div>
-                            <label for="editar_cbi" class="block text-sm font-medium text-gray-700 mb-2">Circunferencia Braquial (cm)</label>
-                            <input type="number" id="editar_cbi" name="cbi" step="0.1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 14.2">
-                        </div>
-                        <div>
-                            <label for="editar_csi" class="block text-sm font-medium text-gray-700 mb-2">Circunferencia de la Cintura (cm)</label>
-                            <input type="number" id="editar_csi" name="csi" step="0.1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 52.1">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Clasificación y Estado -->
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Clasificación y Estado</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label for="editar_caso" class="block text-sm font-medium text-gray-700 mb-2">Tipo de Caso *</label>
-                            <select id="editar_caso" name="caso" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Seleccionar caso</option>
-                                <option value="A">Caso A</option>
-                                <option value="B">Caso B</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="editar_estado" class="block text-sm font-medium text-gray-700 mb-2">Estado *</label>
-                            <select id="editar_estado" name="estado" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Seleccionar estado</option>
-                                <option value="activo">Activo</option>
-                                <option value="inactivo">Inactivo</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Botones de Acción -->
-                <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200">
-                    <button type="button" onclick="cerrarModalEditar()" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-200">
-                        Cancelar
-                    </button>
-                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-200">
-                        <i class="fas fa-save mr-2"></i>Actualizar Beneficiario
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- jQuery (requerido por DataTables) -->
+    <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <!-- DataTables JavaScript -->
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.tailwindcss.min.js"></script>
     <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
-
     <script>
         // Inicializar DataTable
         $(document).ready(function() {
@@ -659,7 +311,7 @@ $beneficiarios = [
                     "emptyTable": "No hay datos disponibles en la tabla",
                     "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
                     "infoEmpty": "Mostrando 0 a 0 de 0 registros",
-                    "infoFiltered": "(filtrado de _MAX_ registros totales)",
+                    "infoFiltered": "(filtrado de _MAX_ registros Totales)",
                     "infoPostFix": "",
                     "thousands": ",",
                     "lengthMenu": "Mostrar _MENU_ registros",
@@ -672,19 +324,17 @@ $beneficiarios = [
                         "last": "Último",
                         "next": "Siguiente",
                         "previous": "Anterior"
-                    },
-                    "aria": {
-                        "sortAscending": ": activar para ordenar la columna ascendente",
-                        "sortDescending": ": activar para ordenar la columna descendente"
                     }
                 },
-                dom: '<"flex justify-between items-center mb-4"<"flex"l><"flex"f>>rt<"flex justify-between items-center mt-4"<"flex"i><"flex"p>>',
                 pageLength: 10,
                 lengthMenu: [5, 10, 25, 50],
                 order: [[0, 'asc']],
                 columnDefs: [
-                    { orderable: false, targets: [5] } // Deshabilitar ordenamiento en columna de acciones
-                ]
+                    { orderable: false, targets: [5] }
+                ],
+                dom: '<"flex justify-between items-center mb-4"<"flex"l><"flex"f>>rt<"flex justify-between items-center mt-4"<"flex"i><"flex"p>>',
+                autoWidth: false,
+                scrollX: true
             });
 
             // Filtros personalizados
@@ -719,76 +369,35 @@ $beneficiarios = [
                 table.draw();
             }
 
-            // Función para limpiar filtros
             function limpiarFiltros() {
                 $('#filtro-municipio, #filtro-caso, #filtro-estado').val('');
                 table.search('').columns().search('').draw();
             }
         });
 
-        // Funciones para el modal de nuevo beneficiario
+        // Funciones para el modal
         function abrirModal() {
-            console.log('Abriendo modal...');
             document.getElementById('nuevoBeneficiarioModal').style.display = 'flex';
         }
         
         function cerrarModal() {
-            console.log('Cerrando modal...');
             document.getElementById('nuevoBeneficiarioModal').style.display = 'none';
         }
         
-        // Funciones para el modal de edición
-        function abrirModalEditar(beneficiario) {
-            console.log('Abriendo modal de edición para:', beneficiario);
-            
-            // Llenar el formulario con los datos del beneficiario
-            document.getElementById('editar_id').value = beneficiario.id;
-            document.getElementById('editar_municipio').value = beneficiario.municipio;
-            document.getElementById('editar_parroquia').value = beneficiario.parroquia;
-            document.getElementById('editar_sector').value = beneficiario.sector;
-            document.getElementById('editar_cedula_representante').value = beneficiario.cedula_representante;
-            document.getElementById('editar_nombre_representante').value = beneficiario.nombre_representante;
-            document.getElementById('editar_cedula_beneficiario').value = beneficiario.cedula_beneficiario;
-            document.getElementById('editar_nombre_beneficiario').value = beneficiario.nombre_beneficiario;
-            
-            // Si existe fecha de nacimiento en los datos, usarla, de lo contrario calcularla
-            if (beneficiario.fecha_nacimiento) {
-                document.getElementById('editar_fecha_nacimiento').value = beneficiario.fecha_nacimiento;
-            } else {
-                // Calcular fecha aproximada basada en la edad
-                const edad = parseInt(beneficiario.edad);
-                const hoy = new Date();
-                const añoNacimiento = hoy.getFullYear() - edad;
-                const fechaAproximada = añoNacimiento + '-01-01';
-                document.getElementById('editar_fecha_nacimiento').value = fechaAproximada;
+        // Cerrar modal con tecla Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                cerrarModal();
             }
-            
-            document.getElementById('editar_edad').value = beneficiario.edad;
-            document.getElementById('editar_peso').value = parseFloat(beneficiario.peso);
-            document.getElementById('editar_talla').value = parseFloat(beneficiario.talla);
-            document.getElementById('editar_cbi').value = parseFloat(beneficiario.cbi);
-            document.getElementById('editar_csi').value = parseFloat(beneficiario.csi);
-            document.getElementById('editar_imc').value = beneficiario.imc;
-            document.getElementById('editar_caso').value = beneficiario.caso;
-            document.getElementById('editar_estado').value = beneficiario.estado;
-            
-            // Mostrar el modal
-            document.getElementById('editarBeneficiarioModal').style.display = 'flex';
-        }
-        
-        function cerrarModalEditar() {
-            console.log('Cerrando modal de edición...');
-            document.getElementById('editarBeneficiarioModal').style.display = 'none';
-            document.getElementById('formEditarBeneficiario').reset();
-        }
-        
-        // Calcular IMC automáticamente en el modal de nuevo beneficiario
-        document.getElementById('peso').addEventListener('input', calcularIMC);
-        document.getElementById('talla').addEventListener('input', calcularIMC);
+        });
+
+        // Calcular IMC automáticamente
+        document.getElementById('peso_kg').addEventListener('input', calcularIMC);
+        document.getElementById('talla_cm').addEventListener('input', calcularIMC);
         
         function calcularIMC() {
-            const peso = parseFloat(document.getElementById('peso').value);
-            const talla = parseFloat(document.getElementById('talla').value);
+            const peso = parseFloat(document.getElementById('peso_kg').value);
+            const talla = parseFloat(document.getElementById('talla_cm').value) / 100; // convertir a metros
             
             if (peso && talla) {
                 const imc = peso / (talla * talla);
@@ -797,24 +406,8 @@ $beneficiarios = [
                 document.getElementById('imc').value = '';
             }
         }
-        
-        // Calcular IMC automáticamente en el modal de edición
-        document.getElementById('editar_peso').addEventListener('input', calcularIMCEditar);
-        document.getElementById('editar_talla').addEventListener('input', calcularIMCEditar);
-        
-        function calcularIMCEditar() {
-            const peso = parseFloat(document.getElementById('editar_peso').value);
-            const talla = parseFloat(document.getElementById('editar_talla').value);
-            
-            if (peso && talla) {
-                const imc = peso / (talla * talla);
-                document.getElementById('editar_imc').value = imc.toFixed(2);
-            } else {
-                document.getElementById('editar_imc').value = '';
-            }
-        }
-        
-        // Calcular edad automáticamente en el modal de nuevo beneficiario
+
+        // Calcular edad automáticamente
         document.getElementById('fecha_nacimiento').addEventListener('change', calcularEdad);
         
         function calcularEdad() {
@@ -834,113 +427,40 @@ $beneficiarios = [
                 document.getElementById('edad').value = '';
             }
         }
-        
-        // Calcular edad automáticamente en el modal de edición
-        document.getElementById('editar_fecha_nacimiento').addEventListener('change', calcularEdadEditar);
-        
-        function calcularEdadEditar() {
-            const fechaNacimiento = new Date(document.getElementById('editar_fecha_nacimiento').value);
-            const hoy = new Date();
-            
-            if (fechaNacimiento && fechaNacimiento <= hoy) {
-                let edad = hoy.getFullYear() - fechaNacimiento.getFullYear();
-                const mes = hoy.getMonth() - fechaNacimiento.getMonth();
-                
-                if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNacimiento.getDate())) {
-                    edad--;
-                }
-                
-                document.getElementById('editar_edad').value = `${edad} años`;
-            } else {
-                document.getElementById('editar_edad').value = '';
-            }
+
+        // Funciones para editar y eliminar
+        function editarBeneficiario(cedula) {
+            alert('Editando beneficiario con cédula: ' + cedula);
+            // Aquí iría la lógica para cargar datos en el modal de edición
         }
-        
-        // Manejar envío del formulario de nuevo beneficiario
-        document.getElementById('formNuevoBeneficiario').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Aquí iría la lógica para guardar el beneficiario
-            alert('Beneficiario guardado exitosamente');
-            cerrarModal();
-            this.reset();
-        });
 
-        // Manejar envío del formulario de edición
-        document.getElementById('formEditarBeneficiario').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = new FormData(this);
-            const datos = Object.fromEntries(formData);
-            
-            console.log('Actualizando beneficiario:', datos);
-            
-            // Aquí iría la lógica para actualizar el beneficiario en la base de datos
-            // Por ahora simulamos la actualización
-            
-            // Simular éxito
-            alert('Beneficiario actualizado exitosamente');
-            
-            // Cerrar modal
-            cerrarModalEditar();
-            
-            // Recargar la página para ver los cambios
-            setTimeout(() => {
-                location.reload();
-            }, 1000);
-        });
-
-        // Función para editar beneficiario
-        function editarBeneficiario(id) {
-            console.log('Intentando editar beneficiario ID:', id);
-            
-            // Buscar el beneficiario en los datos PHP
-            const beneficiarios = <?php echo json_encode($beneficiarios); ?>;
-            
-            // Buscar el beneficiario
-            const beneficiario = beneficiarios.find(b => b.id == id);
-            
-            if (beneficiario) {
-                console.log('Beneficiario encontrado:', beneficiario);
-                abrirModalEditar(beneficiario);
-            } else {
-                console.error('Beneficiario no encontrado. ID buscado:', id);
-                alert('Error: Beneficiario no encontrado. ID: ' + id);
+        function eliminarBeneficiario(cedula, nombre) {
+            if (confirm(`¿Está seguro de que desea eliminar al beneficiario "${nombre}"?`)) {
+                // Crear formulario para eliminar
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '';
+                
+                const actionInput = document.createElement('input');
+                actionInput.type = 'hidden';
+                actionInput.name = 'action';
+                actionInput.value = 'delete';
+                
+                const cedulaInput = document.createElement('input');
+                cedulaInput.type = 'hidden';
+                cedulaInput.name = 'cedula_beneficiario';
+                cedulaInput.value = cedula;
+                
+                form.appendChild(actionInput);
+                form.appendChild(cedulaInput);
+                document.body.appendChild(form);
+                form.submit();
             }
         }
 
-        // Función para eliminar beneficiario
-        function eliminarBeneficiario(id, nombre) {
-            if (confirm(`¿Está seguro de que desea eliminar al beneficiario "${nombre}"? Esta acción no se puede deshacer.`)) {
-                console.log('Eliminando beneficiario ID:', id);
-                
-                // Aquí iría la lógica para eliminar el beneficiario
-                // Simular eliminación
-                alert(`Beneficiario "${nombre}" eliminado exitosamente`);
-                
-                // Recargar la página
-                setTimeout(() => {
-                    location.reload();
-                }, 1000);
-            }
-        }
-
-        // Cerrar modales con tecla Escape
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                if (document.getElementById('nuevoBeneficiarioModal').style.display === 'flex') {
-                    cerrarModal();
-                }
-                if (document.getElementById('editarBeneficiarioModal').style.display === 'flex') {
-                    cerrarModalEditar();
-                }
-            }
-        });
-
-        // Asegurar que los modales estén ocultos al cargar la página
+        // Asegurar que el modal esté oculto al cargar la página
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('nuevoBeneficiarioModal').style.display = 'none';
-            document.getElementById('editarBeneficiarioModal').style.display = 'none';
         });
     </script>
 </body>
