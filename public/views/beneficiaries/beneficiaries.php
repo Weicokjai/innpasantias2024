@@ -464,4 +464,3 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
         });
     </script>
 </body>
-</html>
