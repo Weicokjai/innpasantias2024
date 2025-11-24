@@ -1,7 +1,7 @@
 <?php
 // Configurar rutas base
-$base_url = '/innprojec/public/';
-$include_path = $_SERVER['DOCUMENT_ROOT'] . '/innprojec/public/';
+$base_url = '/innpasantias2024/public/';
+$include_path = $_SERVER['DOCUMENT_ROOT'] . '/innpasantias2024/public/';
 
 $currentPage = 'Dashboard';
 $currentUser = ['name' => 'Dr. Carlos Méndez', 'role' => 'Nutriólogo'];

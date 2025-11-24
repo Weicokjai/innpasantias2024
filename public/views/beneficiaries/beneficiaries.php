@@ -18,6 +18,25 @@ $controller->handleRequest();
 
 // Obtener datos
 $beneficiarios = $controller->getAllBeneficiariosFormatted();
+
+// Obtener datos únicos para los filtros
+$municipios = [];
+$parroquias = [];
+$sectores = [];
+foreach($beneficiarios as $beneficiario) {
+    if (!in_array($beneficiario['municipio'], $municipios)) {
+        $municipios[] = $beneficiario['municipio'];
+    }
+    if (!in_array($beneficiario['parroquia'], $parroquias)) {
+        $parroquias[] = $beneficiario['parroquia'];
+    }
+    if (!in_array($beneficiario['sector'], $sectores)) {
+        $sectores[] = $beneficiario['sector'];
+    }
+}
+sort($municipios);
+sort($parroquias);
+sort($sectores);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -25,22 +44,55 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Beneficiarios - Instituto Nacional de Nutrición</title>
-    <link href="/innprojec/public/assets/css/output.css" rel="stylesheet">
+    <link href="/innpasantias2024/public/assets/css/output.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.tailwindcss.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
     <style>
         .modal-backup { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; padding: 20px; }
         .modal-content-backup { background: white; border-radius: 12px; width: 100%; max-width: 800px; max-height: 90vh; overflow: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
-        .dataTables_wrapper .dataTables_filter input { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem; margin-left: 0.5rem; }
-        .dataTables_wrapper .dataTables_length select { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem; }
-        .dataTables_wrapper .dataTables_paginate .paginate_button { border: 1px solid #d1d5db; padding: 0.5rem 1rem; margin-left: 0.25rem; border-radius: 0.375rem; }
-        .dataTables_wrapper .dataTables_paginate .paginate_button.current { background: #16a34a; color: white !important; border-color: #16a34a; }
-        .dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #e5e7eb; border-color: #d1d5db; }
-        table.dataTable { width: 100% !important; }
-        .dataTables_wrapper { width: 100% !important; }
-        table.dataTable thead th { border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
-        table.dataTable tbody td { white-space: nowrap; }
+        
+        /* Asegurar que DataTables ocupe el 100% */
+        #tabla-beneficiarios_wrapper {
+            width: 100% !important;
+        }
+        
+        table.dataTable {
+            width: 100% !important;
+        }
+        
+        /* Estilos para botones de DataTables */
+        .dataTables_wrapper .dataTables_filter input {
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            margin-left: 0.5rem;
+        }
+        
+        .dataTables_wrapper .dataTables_length select {
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button {
+            border: 1px solid #d1d5db;
+            padding: 0.5rem 1rem;
+            margin-left: 0.25rem;
+            border-radius: 0.375rem;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+            background: #16a34a;
+            color: white !important;
+            border-color: #16a34a;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+            background: #e5e7eb;
+            border-color: #d1d5db;
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -70,12 +122,32 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
                 <!-- Filtros -->
                 <div class="bg-white rounded-xl shadow p-6 mb-6">
                     <h3 class="text-lg font-semibold mb-4">Filtros</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Municipio</label>
                             <select id="filtro-municipio" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                 <option value="">Todos los municipios</option>
-                                <option value="PALAVECINO">PALAVECINO</option>
+                                <?php foreach($municipios as $municipio): ?>
+                                    <option value="<?php echo htmlspecialchars($municipio); ?>"><?php echo htmlspecialchars($municipio); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Parroquia</label>
+                            <select id="filtro-parroquia" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <option value="">Todas las parroquias</option>
+                                <?php foreach($parroquias as $parroquia): ?>
+                                    <option value="<?php echo htmlspecialchars($parroquia); ?>"><?php echo htmlspecialchars($parroquia); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Sector</label>
+                            <select id="filtro-sector" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <option value="">Todos los sectores</option>
+                                <?php foreach($sectores as $sector): ?>
+                                    <option value="<?php echo htmlspecialchars($sector); ?>"><?php echo htmlspecialchars($sector); ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div>
@@ -84,14 +156,6 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
                                 <option value="">Todos los casos</option>
                                 <option value="1">Caso 1</option>
                                 <option value="2">Caso 2</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Estado</label>
-                            <select id="filtro-estado" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Todos</option>
-                                <option value="activo">Activo</option>
-                                <option value="inactivo">Inactivo</option>
                             </select>
                         </div>
                         <div class="flex items-end space-x-2">
@@ -106,14 +170,14 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
                 </div>
 
                 <!-- Tabla de Beneficiarios -->
-                <div class="bg-white rounded-xl shadow">
+                <div class="bg-white rounded-xl shadow overflow-hidden">
                     <div class="p-6 border-b border-gray-200">
                         <h3 class="text-lg font-semibold">Lista de Beneficiarios</h3>
                         <p class="text-sm text-gray-600">Total: <?php echo count($beneficiarios); ?> registros encontrados</p>
                     </div>
                     
                     <div class="p-6">
-                        <table id="tabla-beneficiarios" class="w-full display" style="width: 100% !important;">
+                        <table id="tabla-beneficiarios" class="w-full display">
                             <thead>
                                 <tr class="bg-gray-50">
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
@@ -124,9 +188,9 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody class="divide-y divide-gray-200">
                                 <?php foreach($beneficiarios as $beneficiario): ?>
-                                <tr>
+                                <tr class="hover:bg-gray-50">
                                     <!-- Ubicación -->
                                     <td class="px-4 py-3 whitespace-nowrap">
                                         <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($beneficiario['municipio']); ?></div>
@@ -301,11 +365,31 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.tailwindcss.min.js"></script>
     <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
     <script>
         // Inicializar DataTable
         $(document).ready(function() {
             var table = $('#tabla-beneficiarios').DataTable({
                 responsive: true,
+                autoWidth: false,
+                scrollX: false,
+                dom: '<"flex flex-col md:flex-row md:items-center justify-between p-4"<"mb-4 md:mb-0"l><"mb-4 md:mb-0"f><"mb-4 md:mb-0"B>>rt<"flex flex-col md:flex-row md:items-center justify-between p-4"<"mb-4 md:mb-0"i><"mb-4 md:mb-0"p>>',
+                buttons: [
+                    {
+                        extend: 'excel',
+                        text: '<i class="fas fa-file-excel mr-2"></i>Excel',
+                        className: 'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition duration-200'
+                    },
+                    {
+                        extend: 'pdf',
+                        text: '<i class="fas fa-file-pdf mr-2"></i>PDF',
+                        className: 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition duration-200 ml-2'
+                    }
+                ],
                 language: {
                     "decimal": "",
                     "emptyTable": "No hay datos disponibles en la tabla",
@@ -330,49 +414,88 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
                 lengthMenu: [5, 10, 25, 50],
                 order: [[0, 'asc']],
                 columnDefs: [
-                    { orderable: false, targets: [5] }
+                    { 
+                        targets: [5], // Columna de Acciones
+                        orderable: false,
+                        searchable: false,
+                        className: 'w-32'
+                    },
+                    { 
+                        targets: [0], // Ubicación
+                        className: 'min-w-48'
+                    },
+                    { 
+                        targets: [1], // Representante
+                        className: 'min-w-40'
+                    },
+                    { 
+                        targets: [2], // Beneficiario
+                        className: 'min-w-44'
+                    },
+                    { 
+                        targets: [3], // Antropometría
+                        className: 'min-w-36'
+                    },
+                    { 
+                        targets: [4], // Caso
+                        className: 'min-w-28'
+                    }
                 ],
-                dom: '<"flex justify-between items-center mb-4"<"flex"l><"flex"f>>rt<"flex justify-between items-center mt-4"<"flex"i><"flex"p>>',
-                autoWidth: false,
-                scrollX: true
+                initComplete: function() {
+                    this.api().columns.adjust().responsive.recalc();
+                },
+                drawCallback: function() {
+                    this.api().columns.adjust();
+                }
+            });
+
+            // Ajustar tabla cuando cambia el tamaño de la ventana
+            $(window).on('resize', function() {
+                table.columns.adjust().responsive.recalc();
             });
 
             // Filtros personalizados
-            $('#filtro-municipio, #filtro-caso, #filtro-estado').on('change', function() {
-                aplicarFiltros();
-            });
-
-            $('#btn-filtrar').on('click', function() {
-                aplicarFiltros();
-            });
-
-            $('#btn-limpiar').on('click', function() {
-                limpiarFiltros();
-            });
-
             function aplicarFiltros() {
                 var municipio = $('#filtro-municipio').val();
+                var parroquia = $('#filtro-parroquia').val();
+                var sector = $('#filtro-sector').val();
                 var caso = $('#filtro-caso').val();
-                var estado = $('#filtro-estado').val();
 
-                // Aplicar filtros a las columnas correspondientes
-                table.column(0).search(municipio); // Columna de ubicación (municipio)
-                table.column(4).search(caso); // Columna de caso
-                
-                // Para estado, buscar en la columna 4 que contiene el texto del estado
-                if (estado) {
-                    table.column(4).search('\\b' + estado + '\\b', true, false);
-                } else {
-                    table.column(4).search('');
-                }
+                table.rows().every(function() {
+                    var row = this.node();
+                    var data = this.data();
+                    
+                    var municipioText = $(data[0]).find('div:first').text().trim();
+                    var parroquiaText = $(data[0]).find('div:nth-child(2)').text().trim();
+                    var sectorText = $(data[0]).find('div:last').text().trim();
+                    var casoText = $(data[4]).find('span:first').text().trim();
+                    
+                    var municipioMatch = !municipio || municipioText === municipio;
+                    var parroquiaMatch = !parroquia || parroquiaText === parroquia;
+                    var sectorMatch = !sector || sectorText === sector;
+                    var casoMatch = !caso || casoText.includes('Caso ' + caso);
+                    
+                    if (municipioMatch && parroquiaMatch && sectorMatch && casoMatch) {
+                        $(row).show();
+                    } else {
+                        $(row).hide();
+                    }
+                });
 
                 table.draw();
             }
 
-            function limpiarFiltros() {
-                $('#filtro-municipio, #filtro-caso, #filtro-estado').val('');
-                table.search('').columns().search('').draw();
-            }
+            $('#filtro-municipio, #filtro-parroquia, #filtro-sector, #filtro-caso').on('change', aplicarFiltros);
+            $('#btn-filtrar').on('click', aplicarFiltros);
+
+            $('#btn-limpiar').on('click', function() {
+                $('#filtro-municipio, #filtro-parroquia, #filtro-sector, #filtro-caso').val('');
+                table.search('').draw();
+                table.rows().every(function() {
+                    $(this.node()).show();
+                });
+                table.draw();
+            });
         });
 
         // Funciones para el modal
@@ -464,3 +587,4 @@ $beneficiarios = $controller->getAllBeneficiariosFormatted();
         });
     </script>
 </body>
+</html>
