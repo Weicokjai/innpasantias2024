@@ -34,7 +34,6 @@ class BeneficiarioModel {
             AND b.cedula_beneficiario != ''
             GROUP BY b.cedula_beneficiario
             ORDER BY b.nombres ASC
-            LIMIT 100
         ";
         
         $stmt = $this->conn->prepare($query);
