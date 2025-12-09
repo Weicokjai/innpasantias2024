@@ -19,6 +19,11 @@ $controller->handleRequest();
 // Obtener datos
 $beneficiarios = $controller->getAllBeneficiariosFormatted();
 
+// Función para escape seguro de HTML
+function e($string) {
+    return htmlspecialchars($string, ENT_QUOTES, 'UTF-8');
+}
+
 // Función para formatear números
 function formatearNumero($valor, $decimales = 2) {
     if ($valor === null || $valor === '') {
@@ -29,6 +34,82 @@ function formatearNumero($valor, $decimales = 2) {
     return number_format($numero, $decimales, ',', '.');
 }
 
+// Función para procesar datos de filtros de manera eficiente
+function procesarFiltrosEficiente($beneficiarios) {
+    $municipios = [];
+    $parroquiasPorMunicipio = [];
+    $sectoresPorParroquia = [];
+    $parroquiasUnicas = [];
+    $sectoresUnicos = [];
+    
+    foreach($beneficiarios as $beneficiario) {
+        // Usar isset para mejor performance con arrays grandes
+        $municipio = $beneficiario['municipio'] ?? '';
+        $parroquia = $beneficiario['parroquia'] ?? '';
+        $sector = $beneficiario['sector'] ?? '';
+        
+        if ($municipio && !isset($municipios[$municipio])) {
+            $municipios[$municipio] = true;
+        }
+        
+        if ($municipio && $parroquia) {
+            if (!isset($parroquiasPorMunicipio[$municipio])) {
+                $parroquiasPorMunicipio[$municipio] = [];
+            }
+            if (!isset($parroquiasPorMunicipio[$municipio][$parroquia])) {
+                $parroquiasPorMunicipio[$municipio][$parroquia] = true;
+            }
+            
+            if (!isset($parroquiasUnicas[$parroquia])) {
+                $parroquiasUnicas[$parroquia] = true;
+            }
+        }
+        
+        if ($parroquia && $sector) {
+            if (!isset($sectoresPorParroquia[$parroquia])) {
+                $sectoresPorParroquia[$parroquia] = [];
+            }
+            if (!isset($sectoresPorParroquia[$parroquia][$sector])) {
+                $sectoresPorParroquia[$parroquia][$sector] = true;
+            }
+            
+            if (!isset($sectoresUnicos[$sector])) {
+                $sectoresUnicos[$sector] = true;
+            }
+        }
+    }
+    
+    // Convertir a arrays simples y ordenar
+    $municipiosArray = array_keys($municipios);
+    $parroquiasArray = array_keys($parroquiasUnicas);
+    $sectoresArray = array_keys($sectoresUnicos);
+    
+    sort($municipiosArray);
+    sort($parroquiasArray);
+    sort($sectoresArray);
+    
+    // Procesar arrays anidados
+    foreach ($parroquiasPorMunicipio as $municipio => $parroquias) {
+        $parroquiasArray = array_keys($parroquias);
+        sort($parroquiasArray);
+        $parroquiasPorMunicipio[$municipio] = $parroquiasArray;
+    }
+    
+    foreach ($sectoresPorParroquia as $parroquia => $sectores) {
+        $sectoresArray = array_keys($sectores);
+        sort($sectoresArray);
+        $sectoresPorParroquia[$parroquia] = $sectoresArray;
+    }
+    
+    return [
+        'municipios' => $municipiosArray,
+        'parroquias_unicas' => array_keys($parroquiasUnicas),
+        'sectores_unicos' => array_keys($sectoresUnicos),
+        'parroquias_por_municipio' => $parroquiasPorMunicipio,
+        'sectores_por_parroquia' => $sectoresPorParroquia
+    ];
+}
+
 // Formatear los datos de beneficiarios
 foreach($beneficiarios as &$beneficiario) {
     $beneficiario['peso'] = formatearNumero($beneficiario['peso'], 1);
@@ -37,69 +118,27 @@ foreach($beneficiarios as &$beneficiario) {
     $beneficiario['imc'] = formatearNumero($beneficiario['imc'], 2);
 }
 
-// Obtener datos únicos para los filtros y para el modal
-$municipios = [];
-$parroquiasPorMunicipio = [];
-$sectoresPorParroquia = [];
-
-foreach($beneficiarios as $beneficiario) {
-    // Municipios
-    if (!in_array($beneficiario['municipio'], $municipios)) {
-        $municipios[] = $beneficiario['municipio'];
-    }
-    
-    // Parroquias por municipio
-    if (!empty($beneficiario['municipio']) && !empty($beneficiario['parroquia'])) {
-        if (!isset($parroquiasPorMunicipio[$beneficiario['municipio']])) {
-            $parroquiasPorMunicipio[$beneficiario['municipio']] = [];
-        }
-        if (!in_array($beneficiario['parroquia'], $parroquiasPorMunicipio[$beneficiario['municipio']])) {
-            $parroquiasPorMunicipio[$beneficiario['municipio']][] = $beneficiario['parroquia'];
-        }
-    }
-    
-    // Sectores por parroquia
-    if (!empty($beneficiario['parroquia']) && !empty($beneficiario['sector'])) {
-        if (!isset($sectoresPorParroquia[$beneficiario['parroquia']])) {
-            $sectoresPorParroquia[$beneficiario['parroquia']] = [];
-        }
-        if (!in_array($beneficiario['sector'], $sectoresPorParroquia[$beneficiario['parroquia']])) {
-            $sectoresPorParroquia[$beneficiario['parroquia']][] = $beneficiario['sector'];
-        }
-    }
-}
-
-sort($municipios);
-foreach ($parroquiasPorMunicipio as $municipio => $parroquias) {
-    sort($parroquiasPorMunicipio[$municipio]);
-}
-foreach ($sectoresPorParroquia as $parroquia => $sectores) {
-    sort($sectoresPorParroquia[$parroquia]);
-}
+// Procesar filtros de manera eficiente
+$filtros = procesarFiltrosEficiente($beneficiarios);
+$municipios = $filtros['municipios'];
+$parroquias = $filtros['parroquias_unicas'];
+$sectores = $filtros['sectores_unicos'];
+$parroquiasPorMunicipio = $filtros['parroquias_por_municipio'];
+$sectoresPorParroquia = $filtros['sectores_por_parroquia'];
 
 // Convertir a JSON para usar en JavaScript
 $parroquias_json = json_encode($parroquiasPorMunicipio);
 $sectores_json = json_encode($sectoresPorParroquia);
 
-// Datos para filtros independientes (sin dependencia)
-$parroquias = [];
-$sectores = [];
-foreach($beneficiarios as $beneficiario) {
-    if (!in_array($beneficiario['parroquia'], $parroquias)) {
-        $parroquias[] = $beneficiario['parroquia'];
-    }
-    if (!in_array($beneficiario['sector'], $sectores)) {
-        $sectores[] = $beneficiario['sector'];
-    }
+// Simular datos para "nuevos ingresos" (personas no registradas en la data principal)
+$nuevosIngresos = [];
+if (isset($_SESSION['beneficiarios_nuevos_ingresos'])) {
+    $nuevosIngresos = $_SESSION['beneficiarios_nuevos_ingresos'];
 }
-sort($parroquias);
-sort($sectores);
 
-// Simular datos para fuera de línea (en producción vendrían de localStorage o IndexedDB)
-$fueraDeLinea = [];
-if (isset($_SESSION['beneficiarios_fuera_linea'])) {
-    $fueraDeLinea = $_SESSION['beneficiarios_fuera_linea'];
-}
+// Contadores para badges
+$totalBeneficiarios = count($beneficiarios);
+$totalNuevosIngresos = count($nuevosIngresos);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -109,8 +148,8 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
     <title>Beneficiarios - Instituto Nacional de Nutrición</title>
     <link href="/innpasantias2024/public/assets/css/output.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SOLO DataTables básico - SIN CSS responsive -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css">
     <style>
         .modal-backup { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; padding: 20px; }
         .modal-content-backup { background: white; border-radius: 12px; width: 100%; max-width: 800px; max-height: 90vh; overflow: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
@@ -142,16 +181,6 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             display: block;
         }
         
-        .badge-empty {
-            background-color: #fee2e2;
-            color: #dc2626;
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.375rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-left: 0.5rem;
-        }
-        
         .badge-online {
             background-color: #dcfce7;
             color: #16a34a;
@@ -163,8 +192,8 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
         }
         
         .badge-offline {
-            background-color: #fee2e2;
-            color: #dc2626;
+            background-color: #fef3c7;
+            color: #d97706;
             padding: 0.25rem 0.5rem;
             border-radius: 0.375rem;
             font-size: 0.75rem;
@@ -191,67 +220,106 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             max-width: 1000px;
         }
         
-        /* Estilos para DataTables responsive */
+        /* Personalización de DataTables para que use Tailwind */
+        .dataTables_wrapper .dataTables_length,
+        .dataTables_wrapper .dataTables_filter,
+        .dataTables_wrapper .dataTables_info,
+        .dataTables_wrapper .dataTables_processing,
+        .dataTables_wrapper .dataTables_paginate {
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
+        }
+        
+        .dataTables_wrapper .dataTables_length select {
+            border: 1px solid #d1d5db !important;
+            border-radius: 0.375rem !important;
+            padding: 0.25rem 0.5rem !important;
+        }
+        
+        .dataTables_wrapper .dataTables_filter input {
+            border: 1px solid #d1d5db !important;
+            border-radius: 0.375rem !important;
+            padding: 0.375rem 0.75rem !important;
+            margin-left: 0.5rem !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button {
+            border: 1px solid #d1d5db !important;
+            border-radius: 0.375rem !important;
+            padding: 0.375rem 0.75rem !important;
+            margin: 0 0.125rem !important;
+            background: white !important;
+            color: #4b5563 !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current,
+        .dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+            background: #16a34a !important;
+            color: white !important;
+            border-color: #16a34a !important;
+        }
+        
+        /* TABLA AL 100% SIN SCROLL HORIZONTAL */
         .dataTables_wrapper {
-            padding: 0 !important;
-        }
-        
-        .dataTables_filter {
-            margin-bottom: 1rem !important;
-        }
-        
-        .dataTables_length {
-            margin-bottom: 1rem !important;
-        }
-        
-        /* Estilos para tabla responsive en móviles */
-        @media screen and (max-width: 767px) {
-            .dataTables_wrapper .dataTables_info,
-            .dataTables_wrapper .dataTables_paginate {
-                text-align: center !important;
-                float: none !important;
-                margin-top: 1rem !important;
-            }
-            
-            .dataTables_wrapper .dataTables_filter input {
-                width: 100% !important;
-                margin-bottom: 0.5rem !important;
-            }
-            
-            .dataTables_wrapper .dataTables_length select {
-                width: 100% !important;
-                margin-bottom: 0.5rem !important;
-            }
-        }
-        
-        /* Estilos para filas responsive de DataTables */
-        .dtr-details {
-            width: 100%;
-        }
-        
-        .dtr-details li {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 0.5rem 0;
-        }
-        
-        .dtr-title {
-            font-weight: 600;
-            color: #4b5563;
-            min-width: 120px;
-            display: inline-block;
-        }
-        
-        .dtr-data {
-            color: #111827;
-        }
-        
-        /* Asegurar que la tabla ocupe el 100% */
-        #tabla-beneficiarios_wrapper {
             width: 100% !important;
+            max-width: 100% !important;
+            overflow: hidden !important; /* Eliminar scroll horizontal */
         }
         
         #tabla-beneficiarios {
             width: 100% !important;
+            max-width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: fixed !important; /* Distribución fija de columnas */
+        }
+        
+        /* Sobrescribir estilos de DataTables para que sean consistentes con Tailwind */
+        #tabla-beneficiarios thead th {
+            background-color: #f9fafb !important;
+            border-bottom: 2px solid #e5e7eb !important;
+            padding: 0.75rem 1rem !important;
+            text-align: left !important;
+            font-weight: 600 !important;
+            color: #374151 !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+        }
+        
+        #tabla-beneficiarios tbody td {
+            padding: 0.75rem 1rem !important;
+            border-bottom: 1px solid #e5e7eb !important;
+            vertical-align: top !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: normal !important; /* Permitir saltos de línea */
+            word-wrap: break-word !important;
+        }
+        
+        #tabla-beneficiarios tbody tr:hover {
+            background-color: #f9fafb !important;
+        }
+        
+        /* Deshabilitar completamente el responsive de DataTables */
+        .dtr-details,
+        .dtr-title,
+        .dtr-data,
+        .dtr-inline,
+        .dtr-column {
+            display: none !important;
+        }
+        
+        /* Forzar que todas las columnas sean visibles */
+        #tabla-beneficiarios th,
+        #tabla-beneficiarios td {
+            display: table-cell !important;
+        }
+        
+        /* ELIMINAR scroll horizontal en contenedor */
+        .tabla-contenedor {
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden !important; /* Sin scroll */
         }
         
         /* Estilos para números formateados */
@@ -279,6 +347,114 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             color: #ef4444;
             font-weight: 700;
         }
+        
+        /* Distribución proporcional de ancho de columnas */
+        #tabla-beneficiarios th:nth-child(1),
+        #tabla-beneficiarios td:nth-child(1) { /* Ubicación */
+            width: 20% !important;
+        }
+        
+        #tabla-beneficiarios th:nth-child(2),
+        #tabla-beneficiarios td:nth-child(2) { /* Representante */
+            width: 18% !important;
+        }
+        
+        #tabla-beneficiarios th:nth-child(3),
+        #tabla-beneficiarios td:nth-child(3) { /* Beneficiario */
+            width: 22% !important;
+        }
+        
+        #tabla-beneficiarios th:nth-child(4),
+        #tabla-beneficiarios td:nth-child(4) { /* Antropometría */
+            width: 18% !important;
+        }
+        
+        #tabla-beneficiarios th:nth-child(5),
+        #tabla-beneficiarios td:nth-child(5) { /* Caso */
+            width: 12% !important;
+        }
+        
+        #tabla-beneficiarios th:nth-child(6),
+        #tabla-beneficiarios td:nth-child(6) { /* Acciones */
+            width: 10% !important;
+            text-align: center;
+        }
+        
+        /* Ajustes para contenido largo */
+        .texto-truncado {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: block;
+            max-width: 100%;
+        }
+        
+        /* En pantallas pequeñas, forzar que la tabla se ajuste sin scroll */
+        @media screen and (max-width: 768px) {
+            .dataTables_wrapper {
+                overflow-x: hidden !important;
+            }
+            
+            #tabla-beneficiarios {
+                min-width: 100% !important; /* Forzar ancho mínimo del 100% */
+            }
+            
+            /* Ajustar tamaños de columna en móviles */
+            #tabla-beneficiarios th:nth-child(1),
+            #tabla-beneficiarios td:nth-child(1) { width: 18% !important; }
+            
+            #tabla-beneficiarios th:nth-child(2),
+            #tabla-beneficiarios td:nth-child(2) { width: 17% !important; }
+            
+            #tabla-beneficiarios th:nth-child(3),
+            #tabla-beneficiarios td:nth-child(3) { width: 20% !important; }
+            
+            #tabla-beneficiarios th:nth-child(4),
+            #tabla-beneficiarios td:nth-child(4) { width: 17% !important; }
+            
+            #tabla-beneficiarios th:nth-child(5),
+            #tabla-beneficiarios td:nth-child(5) { width: 13% !important; }
+            
+            #tabla-beneficiarios th:nth-child(6),
+            #tabla-beneficiarios td:nth-child(6) { width: 15% !important; }
+        }
+        
+        /* En pantallas muy pequeñas, hacer que el texto se ajuste mejor */
+        @media screen and (max-width: 640px) {
+            #tabla-beneficiarios th,
+            #tabla-beneficiarios td {
+                padding: 0.5rem 0.75rem !important;
+                font-size: 0.875rem !important;
+            }
+            
+            /* Reducir aún más los anchos */
+            #tabla-beneficiarios th:nth-child(1),
+            #tabla-beneficiarios td:nth-child(1) { width: 16% !important; }
+            
+            #tabla-beneficiarios th:nth-child(2),
+            #tabla-beneficiarios td:nth-child(2) { width: 16% !important; }
+            
+            #tabla-beneficiarios th:nth-child(3),
+            #tabla-beneficiarios td:nth-child(3) { width: 18% !important; }
+            
+            #tabla-beneficiarios th:nth-child(4),
+            #tabla-beneficiarios td:nth-child(4) { width: 16% !important; }
+            
+            #tabla-beneficiarios th:nth-child(5),
+            #tabla-beneficiarios td:nth-child(5) { width: 14% !important; }
+            
+            #tabla-beneficiarios th:nth-child(6),
+            #tabla-beneficiarios td:nth-child(6) { width: 20% !important; }
+            
+            /* Ocultar elementos menos importantes en móviles */
+            #tabla-beneficiarios td .text-xs.text-gray-400 {
+                display: none;
+            }
+            
+            #tabla-beneficiarios td .text-xs.text-gray-500 {
+                font-size: 0.75rem;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -295,7 +471,7 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             <main class="flex-1 overflow-x-auto p-6">
                 <?php if(isset($_SESSION['message'])): ?>
                 <div class="bg-<?php echo $_SESSION['message_type'] === 'success' ? 'green' : 'red'; ?>-100 border border-<?php echo $_SESSION['message_type'] === 'success' ? 'green' : 'red'; ?>-400 text-<?php echo $_SESSION['message_type'] === 'success' ? 'green' : 'red'; ?>-700 px-4 py-3 rounded mb-6">
-                    <?php echo $_SESSION['message']; ?>
+                    <?php echo e($_SESSION['message']); ?>
                 </div>
                 <?php unset($_SESSION['message']); unset($_SESSION['message_type']); endif; ?>
 
@@ -303,28 +479,18 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                 <div class="mb-6">
                     <div class="flex border-b border-gray-200">
                         <button class="tab-button active" onclick="cambiarTab('beneficiarios')">
-                            <i class="fas fa-users mr-2"></i>Beneficiarios
-                            <span class="badge-online"><?php echo count($beneficiarios); ?></span>
+                            <i class="fas fa-users mr-2"></i>Beneficiarios Registrados
+                            <span class="badge-online"><?php echo e($totalBeneficiarios); ?></span>
                         </button>
-                        <button class="tab-button" onclick="cambiarTab('fuera-linea')">
-                            <i class="fas fa-wifi-slash mr-2"></i>Fuera de Línea
-                            <span class="badge-offline"><?php echo count($fueraDeLinea); ?></span>
+                        <button class="tab-button" onclick="cambiarTab('nuevos-ingresos')">
+                            <i class="fas fa-user-plus mr-2"></i>Nuevos Ingresos
+                            <span class="badge-offline"><?php echo e($totalNuevosIngresos); ?></span>
                         </button>
                     </div>
                 </div>
 
-                <!-- Contenido de Beneficiarios -->
+                <!-- Contenido de Beneficiarios Registrados -->
                 <div id="tab-beneficiarios" class="tab-content active">
-                    <!-- Botón Nuevo Beneficiario -->
-                    <div class="mb-6 flex justify-between items-center">
-                        <div></div>
-                        <div class="flex gap-2">
-                            <button onclick="abrirModal('online')" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 flex items-center">
-                                <i class="fas fa-plus mr-2"></i>Nuevo Beneficiario
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- Filtros para Beneficiarios -->
                     <div class="bg-white rounded-xl shadow p-6 mb-6">
                         <div class="flex justify-between items-center mb-4">
@@ -344,7 +510,7 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                                 <select id="filtro-municipio" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                     <option value="">Todos</option>
                                     <?php foreach($municipios as $municipio): ?>
-                                        <option value="<?php echo htmlspecialchars($municipio); ?>"><?php echo htmlspecialchars($municipio); ?></option>
+                                        <option value="<?php echo e($municipio); ?>"><?php echo e($municipio); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -353,7 +519,7 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                                 <select id="filtro-parroquia" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                     <option value="">Todas</option>
                                     <?php foreach($parroquias as $parroquia): ?>
-                                        <option value="<?php echo htmlspecialchars($parroquia); ?>"><?php echo htmlspecialchars($parroquia); ?></option>
+                                        <option value="<?php echo e($parroquia); ?>"><?php echo e($parroquia); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -362,7 +528,7 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                                 <select id="filtro-sector" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                     <option value="">Todos</option>
                                     <?php foreach($sectores as $sector): ?>
-                                        <option value="<?php echo htmlspecialchars($sector); ?>"><?php echo htmlspecialchars($sector); ?></option>
+                                        <option value="<?php echo e($sector); ?>"><?php echo e($sector); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -380,12 +546,12 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                     <!-- Tabla de Beneficiarios -->
                     <div class="bg-white rounded-xl shadow overflow-hidden">
                         <div class="p-6 border-b border-gray-200">
-                            <h3 class="text-lg font-semibold">Lista de Beneficiarios</h3>
-                            <p class="text-sm text-gray-600">Total: <span id="total-registros"><?php echo count($beneficiarios); ?></span> registros</p>
+                            <h3 class="text-lg font-semibold">Lista de Beneficiarios Registrados</h3>
+                            <p class="text-sm text-gray-600">Total: <span id="total-registros"><?php echo e($totalBeneficiarios); ?></span> registros</p>
                         </div>
                         
-                        <div class="p-6 overflow-x-auto">
-                            <table id="tabla-beneficiarios" class="display responsive nowrap" style="width:100%">
+                        <div class="p-6 tabla-contenedor">
+                            <table id="tabla-beneficiarios" class="min-w-full divide-y divide-gray-200">
                                 <thead>
                                     <tr class="bg-gray-50">
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
@@ -413,24 +579,34 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                                         }
                                     ?>
                                     <tr class="hover:bg-gray-50" 
-                                        data-municipio="<?php echo htmlspecialchars($beneficiario['municipio']); ?>"
-                                        data-parroquia="<?php echo htmlspecialchars($beneficiario['parroquia']); ?>"
-                                        data-sector="<?php echo htmlspecialchars($beneficiario['sector']); ?>"
-                                        data-caso="<?php echo htmlspecialchars($beneficiario['caso']); ?>"
-                                        data-id="<?php echo htmlspecialchars($beneficiario['id'] ?? ''); ?>"
-                                        data-peso="<?php echo htmlspecialchars(str_replace(',', '.', $beneficiario['peso'])); ?>"
-                                        data-talla="<?php echo htmlspecialchars(str_replace(',', '.', $beneficiario['talla'])); ?>"
-                                        data-cbi="<?php echo htmlspecialchars(str_replace(',', '.', $beneficiario['cbi'])); ?>"
-                                        data-imc="<?php echo htmlspecialchars(str_replace(',', '.', $beneficiario['imc'])); ?>">
+                                        data-municipio="<?php echo e($beneficiario['municipio']); ?>"
+                                        data-parroquia="<?php echo e($beneficiario['parroquia']); ?>"
+                                        data-sector="<?php echo e($beneficiario['sector']); ?>"
+                                        data-caso="<?php echo e($beneficiario['caso']); ?>"
+                                        data-id="<?php echo e($beneficiario['id'] ?? ''); ?>"
+                                        data-peso="<?php echo e(str_replace(',', '.', $beneficiario['peso'])); ?>"
+                                        data-talla="<?php echo e(str_replace(',', '.', $beneficiario['talla'])); ?>"
+                                        data-cbi="<?php echo e(str_replace(',', '.', $beneficiario['cbi'])); ?>"
+                                        data-imc="<?php echo e(str_replace(',', '.', $beneficiario['imc'])); ?>">
                                         <td class="px-4 py-3">
-                                            <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($beneficiario['municipio']); ?></div>
-                                            <div class="text-sm text-gray-500"><?php echo htmlspecialchars($beneficiario['parroquia']); ?></div>
-                                            <div class="text-xs text-gray-400"><?php echo htmlspecialchars($beneficiario['sector']); ?></div>
+                                            <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['municipio']); ?>">
+                                                <?php echo e($beneficiario['municipio']); ?>
+                                            </div>
+                                            <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['parroquia']); ?>">
+                                                <?php echo e($beneficiario['parroquia']); ?>
+                                            </div>
+                                            <div class="text-xs text-gray-400 texto-truncado" title="<?php echo e($beneficiario['sector']); ?>">
+                                                <?php echo e($beneficiario['sector']); ?>
+                                            </div>
                                         </td>
                                         
                                         <td class="px-4 py-3">
-                                            <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($beneficiario['nombre_representante']); ?></div>
-                                            <div class="text-sm text-gray-500"><?php echo htmlspecialchars($beneficiario['cedula_representante']); ?></div>
+                                            <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['nombre_representante']); ?>">
+                                                <?php echo e($beneficiario['nombre_representante']); ?>
+                                            </div>
+                                            <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['cedula_representante']); ?>">
+                                                <?php echo e($beneficiario['cedula_representante']); ?>
+                                            </div>
                                         </td>
                                         
                                         <td class="px-4 py-3">
@@ -438,10 +614,16 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                                                 <div class="flex-shrink-0 h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
                                                     <i class="fas fa-child text-blue-600 text-xs"></i>
                                                 </div>
-                                                <div class="ml-3">
-                                                    <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($beneficiario['nombre_beneficiario'] . ' ' . $beneficiario['apellido_beneficiario']); ?></div>
-                                                    <div class="text-sm text-gray-500"><?php echo htmlspecialchars($beneficiario['cedula_beneficiario']); ?></div>
-                                                    <div class="text-xs text-gray-400"><?php echo htmlspecialchars($beneficiario['edad']); ?></div>
+                                                <div class="ml-3 min-w-0">
+                                                    <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['nombre_beneficiario'] . ' ' . $beneficiario['apellido_beneficiario']); ?>">
+                                                        <?php echo e($beneficiario['nombre_beneficiario'] . ' ' . $beneficiario['apellido_beneficiario']); ?>
+                                                    </div>
+                                                    <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['cedula_beneficiario']); ?>">
+                                                        <?php echo e($beneficiario['cedula_beneficiario']); ?>
+                                                    </div>
+                                                    <div class="text-xs text-gray-400">
+                                                        <?php echo e($beneficiario['edad']); ?>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </td>
@@ -450,43 +632,43 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                                             <div class="text-xs">
                                                 <div class="flex justify-between">
                                                     <span>Peso:</span> 
-                                                    <span class="font-medium numero-formateado"><?php echo htmlspecialchars($beneficiario['peso']); ?> kg</span>
+                                                    <span class="font-medium numero-formateado"><?php echo e($beneficiario['peso']); ?> kg</span>
                                                 </div>
                                                 <div class="flex justify-between">
                                                     <span>Talla:</span> 
-                                                    <span class="font-medium numero-formateado"><?php echo htmlspecialchars($beneficiario['talla']); ?> cm</span>
+                                                    <span class="font-medium numero-formateado"><?php echo e($beneficiario['talla']); ?> cm</span>
                                                 </div>
                                                 <div class="flex justify-between">
                                                     <span>CBI:</span> 
-                                                    <span class="font-medium numero-formateado"><?php echo htmlspecialchars($beneficiario['cbi']); ?> mm</span>
+                                                    <span class="font-medium numero-formateado"><?php echo e($beneficiario['cbi']); ?> mm</span>
                                                 </div>
                                                 <div class="flex justify-between">
                                                     <span>IMC:</span> 
-                                                    <span class="font-medium <?php echo $imc_class; ?>"><?php echo htmlspecialchars($beneficiario['imc']); ?></span>
+                                                    <span class="font-medium <?php echo $imc_class; ?>"><?php echo e($beneficiario['imc']); ?></span>
                                                 </div>
                                             </div>
                                         </td>
                                         
                                         <td class="px-4 py-3">
                                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $beneficiario['caso'] === '1' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'; ?>">
-                                                Caso <?php echo htmlspecialchars($beneficiario['caso']); ?>
+                                                Caso <?php echo e($beneficiario['caso']); ?>
                                             </span>
                                             <div class="text-xs text-gray-500 mt-1">
                                                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                                    <?php echo htmlspecialchars($beneficiario['estado']); ?>
+                                                    <?php echo e($beneficiario['estado']); ?>
                                                 </span>
                                             </div>
                                         </td>
                                         
                                         <td class="px-4 py-3 text-sm font-medium">
-                                            <div class="flex space-x-1">
+                                            <div class="flex space-x-1 justify-center">
                                                 <button onclick="editarBeneficiario('<?php echo $beneficiario['id'] ?? $beneficiario['cedula_beneficiario']; ?>')" class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" title="Editar">
                                                     <i class="fas fa-edit"></i>
                                                 </button>
                                                 <button class="text-orange-600 hover:text-orange-900 transition duration-150 p-1" title="Asignar beneficio">
                                                     <i class="fas fa-gift"></i>
                                                 </button>
-                                                <button onclick="eliminarBeneficiario('<?php echo $beneficiario['cedula_beneficiario']; ?>', '<?php echo htmlspecialchars($beneficiario['nombre_beneficiario']); ?>')" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
+                                                <button onclick="eliminarBeneficiario('<?php echo $beneficiario['cedula_beneficiario']; ?>', '<?php echo e($beneficiario['nombre_beneficiario']); ?>')" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
                                             </div>
@@ -499,103 +681,108 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                     </div>
                 </div>
 
-                <!-- Contenido de Fuera de Línea -->
-                <div id="tab-fuera-linea" class="tab-content">
-                    <!-- Botón Nuevo Beneficiario Fuera de Línea -->
+                <!-- Contenido de Nuevos Ingresos -->
+                <div id="tab-nuevos-ingresos" class="tab-content">
+                    <!-- Botón Nuevo Ingreso -->
                     <div class="mb-6 flex justify-between items-center">
-                        <div></div>
+                        <div class="text-sm text-gray-600">
+                            <i class="fas fa-info-circle mr-1"></i>
+                            Registre aquí a personas que no están en la base de datos principal
+                        </div>
                         <div class="flex gap-2">
                             <button onclick="abrirModal('offline')" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 flex items-center">
-                                <i class="fas fa-plus mr-2"></i>Nuevo Beneficiario
+                                <i class="fas fa-user-plus mr-2"></i>Registrar Nuevo Ingreso
                             </button>
-                            <button onclick="sincronizarTodo()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 flex items-center">
-                                <i class="fas fa-sync-alt mr-2"></i>Sincronizar Todo
+                            <button onclick="incorporarTodo()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 flex items-center">
+                                <i class="fas fa-database mr-2"></i>Incorporar a Base Principal
                             </button>
                         </div>
                     </div>
 
-                    <!-- Tabla de Fuera de Línea -->
+                    <!-- Tabla de Nuevos Ingresos -->
                     <div class="bg-white rounded-xl shadow overflow-hidden">
                         <div class="p-6 border-b border-gray-200">
-                            <h3 class="text-lg font-semibold">Registros Fuera de Línea</h3>
-                            <p class="text-sm text-gray-600">Total: <span id="total-registros-fdl"><?php echo count($fueraDeLinea); ?></span> registros pendientes de sincronización</p>
+                            <h3 class="text-lg font-semibold">Registros de Nuevos Ingresos</h3>
+                            <p class="text-sm text-gray-600">Total: <span id="total-registros-ni"><?php echo e($totalNuevosIngresos); ?></span> personas pendientes de incorporar</p>
                         </div>
                         
                         <div class="p-6">
-                            <?php if(empty($fueraDeLinea)): ?>
+                            <?php if(empty($nuevosIngresos)): ?>
                                 <div class="text-center py-12">
                                     <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
-                                        <i class="fas fa-wifi-slash text-blue-600 text-2xl"></i>
+                                        <i class="fas fa-user-plus text-blue-600 text-2xl"></i>
                                     </div>
-                                    <h4 class="text-lg font-medium text-gray-900 mb-2">No hay registros fuera de línea</h4>
+                                    <h4 class="text-lg font-medium text-gray-900 mb-2">No hay nuevos ingresos registrados</h4>
                                     <p class="text-gray-600 max-w-md mx-auto">
-                                        Crea nuevos beneficiarios mientras estés sin conexión a internet.
-                                        Se guardarán localmente y podrás sincronizarlos cuando vuelvas a tener conexión.
+                                        Registre aquí a personas que no se encuentran en la base de datos principal.
+                                        Estos registros se guardarán temporalmente hasta que sean incorporados al sistema principal.
                                     </p>
                                     <div class="mt-6">
                                         <button onclick="abrirModal('offline')" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200">
-                                            <i class="fas fa-plus mr-2"></i>Crear Primer Beneficiario
+                                            <i class="fas fa-user-plus mr-2"></i>Registrar Primer Nuevo Ingreso
                                         </button>
                                     </div>
                                 </div>
                             <?php else: ?>
-                                <table class="w-full divide-y divide-gray-200">
-                                    <thead>
-                                        <tr class="bg-gray-50">
-                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficiario</th>
-                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
-                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-200">
-                                        <?php foreach($fueraDeLinea as $index => $registro): ?>
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                                <?php echo htmlspecialchars($registro['fecha_creacion'] ?? date('d/m/Y H:i')); ?>
-                                            </td>
-                                            <td class="px-4 py-3">
-                                                <div class="flex items-center">
-                                                    <div class="flex-shrink-0 h-8 w-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                                                        <i class="fas fa-user-clock text-yellow-600 text-xs"></i>
-                                                    </div>
-                                                    <div class="ml-3">
-                                                        <div class="text-sm font-medium text-gray-900">
-                                                            <?php echo htmlspecialchars($registro['nombre_beneficiario'] ?? 'N/A'); ?>
+                                <div class="tabla-contenedor">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead>
+                                            <tr class="bg-gray-50">
+                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Registro</th>
+                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficiario</th>
+                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
+                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-200">
+                                            <?php foreach($nuevosIngresos as $index => $registro): ?>
+                                            <tr class="hover:bg-gray-50">
+                                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                                    <?php echo e($registro['fecha_creacion'] ?? date('d/m/Y H:i')); ?>
+                                                </td>
+                                                <td class="px-4 py-3">
+                                                    <div class="flex items-center">
+                                                        <div class="flex-shrink-0 h-8 w-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                                                            <i class="fas fa-user-clock text-yellow-600 text-xs"></i>
                                                         </div>
-                                                        <div class="text-sm text-gray-500">
-                                                            <?php echo htmlspecialchars($registro['cedula_beneficiario'] ?? 'Sin cédula'); ?>
+                                                        <div class="ml-3 min-w-0">
+                                                            <div class="text-sm font-medium text-gray-900 texto-truncado">
+                                                                <?php echo e($registro['nombre_beneficiario'] ?? 'N/A'); ?>
+                                                            </div>
+                                                            <div class="text-sm text-gray-500 texto-truncado">
+                                                                <?php echo e($registro['cedula_beneficiario'] ?? 'Sin cédula'); ?>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            </td>
-                                            <td class="px-4 py-3">
-                                                <div class="text-sm text-gray-900"><?php echo htmlspecialchars($registro['sector'] ?? 'N/A'); ?></div>
-                                                <div class="text-xs text-gray-500"><?php echo htmlspecialchars($registro['parroquia'] ?? 'N/A'); ?></div>
-                                            </td>
-                                            <td class="px-4 py-3 whitespace-nowrap">
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium status-offline">
-                                                    <i class="fas fa-wifi-slash mr-1"></i> Pendiente
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 text-sm font-medium">
-                                                <div class="flex space-x-1">
-                                                    <button onclick="sincronizarRegistro(<?php echo $index; ?>)" class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" title="Sincronizar">
-                                                        <i class="fas fa-sync-alt"></i>
-                                                    </button>
-                                                    <button onclick="editarRegistroFDL(<?php echo $index; ?>)" class="text-green-600 hover:text-green-900 transition duration-150 p-1" title="Editar">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button onclick="eliminarRegistroFDL(<?php echo $index; ?>)" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
+                                                </td>
+                                                <td class="px-4 py-3">
+                                                    <div class="text-sm text-gray-900 texto-truncado"><?php echo e($registro['sector'] ?? 'N/A'); ?></div>
+                                                    <div class="text-xs text-gray-500 texto-truncado"><?php echo e($registro['parroquia'] ?? 'N/A'); ?></div>
+                                                </td>
+                                                <td class="px-4 py-3 whitespace-nowrap">
+                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium status-offline">
+                                                        <i class="fas fa-clock mr-1"></i> Pendiente
+                                                    </span>
+                                                </td>
+                                                <td class="px-4 py-3 text-sm font-medium">
+                                                    <div class="flex space-x-1 justify-center">
+                                                        <button onclick="incorporarRegistro(<?php echo $index; ?>)" class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" title="Incorporar a base principal">
+                                                            <i class="fas fa-database"></i>
+                                                        </button>
+                                                        <button onclick="editarRegistroNI(<?php echo $index; ?>)" class="text-green-600 hover:text-green-900 transition duration-150 p-1" title="Editar">
+                                                            <i class="fas fa-edit"></i>
+                                                        </button>
+                                                        <button onclick="eliminarRegistroNI(<?php echo $index; ?>)" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
+                                                            <i class="fas fa-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -617,8 +804,8 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             <form id="formNuevoBeneficiario" method="POST" class="p-6">
                 <input type="hidden" name="action" id="form-action" value="create">
                 <input type="hidden" name="tipo" id="form-tipo" value="online">
-                <input type="hidden" id="parroquias_data" value='<?php echo htmlspecialchars($parroquias_json); ?>'>
-                <input type="hidden" id="sectores_data" value='<?php echo htmlspecialchars($sectores_json); ?>'>
+                <input type="hidden" id="parroquias_data" value='<?php echo e($parroquias_json); ?>'>
+                <input type="hidden" id="sectores_data" value='<?php echo e($sectores_json); ?>'>
                 
                 <div class="mb-6">
                     <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Ubicación y CLAP</h4>
@@ -628,7 +815,7 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                             <select id="municipio" name="municipio" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                 <option value="">Seleccionar municipio</option>
                                 <?php foreach($municipios as $municipio): ?>
-                                    <option value="<?php echo htmlspecialchars($municipio); ?>"><?php echo htmlspecialchars($municipio); ?></option>
+                                    <option value="<?php echo e($municipio); ?>"><?php echo e($municipio); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -864,8 +1051,8 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             <form id="formEditarBeneficiario" method="POST" class="p-6">
                 <input type="hidden" name="action" id="form-action-editar" value="update">
                 <input type="hidden" name="beneficiario_id" id="beneficiario_id">
-                <input type="hidden" id="parroquias_data_editar" value='<?php echo htmlspecialchars($parroquias_json); ?>'>
-                <input type="hidden" id="sectores_data_editar" value='<?php echo htmlspecialchars($sectores_json); ?>'>
+                <input type="hidden" id="parroquias_data_editar" value='<?php echo e($parroquias_json); ?>'>
+                <input type="hidden" id="sectores_data_editar" value='<?php echo e($sectores_json); ?>'>
                 
                 <div class="mb-6">
                     <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Ubicación y CLAP</h4>
@@ -875,7 +1062,7 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                             <select id="municipio_editar" name="municipio" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                 <option value="">Seleccionar municipio</option>
                                 <?php foreach($municipios as $municipio): ?>
-                                    <option value="<?php echo htmlspecialchars($municipio); ?>"><?php echo htmlspecialchars($municipio); ?></option>
+                                    <option value="<?php echo e($municipio); ?>"><?php echo e($municipio); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -1101,7 +1288,6 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
     <script>
         // Variable global para la tabla
         var tablaBeneficiarios = null;
@@ -1118,11 +1304,12 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                 return;
             }
             
-            // Inicializar DataTable con responsive
+            // Inicializar DataTable SIN responsive y SIN scroll horizontal
             try {
                 tablaBeneficiarios = $('#tabla-beneficiarios').DataTable({
-                    responsive: true,
-                    autoWidth: false,
+                    responsive: false, // DESACTIVAR responsive
+                    scrollX: false, // DESACTIVAR scroll horizontal
+                    autoWidth: false, // Usar anchos fijos
                     language: {
                         "decimal": ",",
                         "emptyTable": "No hay datos disponibles",
@@ -1146,55 +1333,40 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                     pageLength: 10,
                     lengthMenu: [5, 10, 25, 50],
                     order: [[0, 'asc']],
+                    // Configuración de columnas SIN responsivePriority
                     columnDefs: [
                         { 
-                            targets: [5],
+                            targets: [5], // Columna de acciones
                             orderable: false,
-                            searchable: false,
-                            responsivePriority: 1
+                            searchable: false
                         },
-                        { 
-                            targets: [0],
-                            responsivePriority: 2
-                        },
-                        { 
-                            targets: [2],
-                            responsivePriority: 3
-                        },
-                        { 
-                            targets: [3],
-                            responsivePriority: 4
-                        },
-                        { 
-                            targets: [1],
-                            responsivePriority: 5
-                        },
-                        { 
-                            targets: [4],
-                            responsivePriority: 6
-                        }
+                        // Definir anchos específicos para las columnas
+                        { width: "20%", targets: 0 }, // Ubicación
+                        { width: "18%", targets: 1 }, // Representante
+                        { width: "22%", targets: 2 }, // Beneficiario
+                        { width: "18%", targets: 3 }, // Antropometría
+                        { width: "12%", targets: 4 }, // Caso
+                        { width: "10%", targets: 5 }  // Acciones
                     ],
                     initComplete: function() {
-                        console.log('DataTable inicializado correctamente');
-                        // Llamar a actualizarContador con verificación
-                        if (tablaBeneficiarios) {
-                            actualizarContador();
-                        }
+                        console.log('DataTable inicializado correctamente SIN responsive y SIN scroll horizontal');
+                        actualizarContador();
+                        // Ajustar columnas después de inicializar
+                        this.api().columns.adjust();
                     },
                     drawCallback: function() {
-                        // Verificar que la tabla existe antes de actualizar
-                        if (tablaBeneficiarios) {
-                            actualizarContador();
-                        }
+                        actualizarContador();
                     }
                 });
                 
-                console.log('DataTable creada con responsive:', tablaBeneficiarios);
+                console.log('DataTable creada SIN responsive y SIN scroll horizontal:', tablaBeneficiarios);
                 
                 // Ajustar la tabla cuando cambie el tamaño de la ventana
                 $(window).on('resize', function() {
                     if (tablaBeneficiarios) {
-                        tablaBeneficiarios.columns.adjust().responsive.recalc();
+                        setTimeout(function() {
+                            tablaBeneficiarios.columns.adjust();
+                        }, 100);
                     }
                 });
                 
@@ -1884,8 +2056,8 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                 formTipo.value = 'online';
                 document.getElementById('form-action').value = 'create';
             } else {
-                modalTitulo.textContent = 'Nuevo Beneficiario (Fuera de Línea)';
-                btnGuardarTexto.textContent = 'Guardar Localmente';
+                modalTitulo.textContent = 'Registro de Nuevo Ingreso';
+                btnGuardarTexto.textContent = 'Guardar como Nuevo Ingreso';
                 formTipo.value = 'offline';
                 document.getElementById('form-action').value = 'create_offline';
             }
@@ -2134,10 +2306,10 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             });
             
             if (tipoModalActual === 'offline') {
-                // Guardar localmente (fuera de línea)
-                guardarLocalmente();
+                // Guardar como nuevo ingreso
+                guardarComoNuevoIngreso();
             } else {
-                // Enviar al servidor (en línea)
+                // Enviar al servidor (beneficiario regular)
                 this.submit();
             }
         });
@@ -2163,10 +2335,10 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
         });
 
         // =====================================================================
-        // FUNCIONES PARA FUERA DE LÍNEA
+        // FUNCIONES PARA NUEVOS INGRESOS
         // =====================================================================
 
-        function guardarLocalmente() {
+        function guardarComoNuevoIngreso() {
             const formData = new FormData(document.getElementById('formNuevoBeneficiario'));
             const data = {};
             
@@ -2180,9 +2352,9 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             
             // Aquí normalmente guardarías en localStorage o IndexedDB
             // Por ahora simulamos con un prompt
-            console.log('Datos para guardar localmente:', data);
+            console.log('Datos para guardar como nuevo ingreso:', data);
             
-            alert('Beneficiario guardado localmente. Se sincronizará cuando haya conexión.');
+            alert('Beneficiario guardado como nuevo ingreso. Se incorporará a la base principal cuando sea aprobado.');
             cerrarModal();
             
             // Recargar la página para mostrar el nuevo registro
@@ -2191,35 +2363,35 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             }, 1000);
         }
 
-        function sincronizarTodo() {
-            if (confirm('¿Está seguro de que desea sincronizar todos los registros fuera de línea?')) {
-                // Aquí iría la lógica para sincronizar con el servidor
-                alert('Sincronizando registros...');
-                // Después de sincronizar, recargar la página
+        function incorporarTodo() {
+            if (confirm('¿Está seguro de que desea incorporar todos los nuevos ingresos a la base de datos principal?')) {
+                // Aquí iría la lógica para incorporar a la base principal
+                alert('Incorporando todos los nuevos ingresos...');
+                // Después de incorporar, recargar la página
                 setTimeout(() => {
                     location.reload();
                 }, 1500);
             }
         }
 
-        function sincronizarRegistro(index) {
-            if (confirm('¿Sincronizar este registro?')) {
-                // Aquí iría la lógica para sincronizar un registro específico
-                alert('Sincronizando registro...');
-                // Después de sincronizar, recargar la página
+        function incorporarRegistro(index) {
+            if (confirm('¿Incorporar este registro a la base de datos principal?')) {
+                // Aquí iría la lógica para incorporar un registro específico
+                alert('Incorporando registro a la base principal...');
+                // Después de incorporar, recargar la página
                 setTimeout(() => {
                     location.reload();
                 }, 1000);
             }
         }
 
-        function editarRegistroFDL(index) {
-            alert('Editando registro fuera de línea #' + index);
-            // Aquí abrirías el modal con los datos del registro
+        function editarRegistroNI(index) {
+            alert('Editando nuevo ingreso #' + index);
+            // Aquí abrirías el modal con los datos del registro de nuevo ingreso
         }
 
-        function eliminarRegistroFDL(index) {
-            if (confirm('¿Eliminar este registro fuera de línea?')) {
+        function eliminarRegistroNI(index) {
+            if (confirm('¿Eliminar este registro de nuevo ingreso?')) {
                 // Aquí eliminarías el registro del almacenamiento local
                 alert('Registro eliminado');
                 // Recargar la página
@@ -2269,19 +2441,27 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
             document.querySelectorAll('.tab-button').forEach(button => {
                 button.classList.remove('active');
             });
+            
+            // Mapear nombres de pestañas
+            const tabMapping = {
+                'beneficiarios': 'beneficiarios',
+                'nuevos-ingresos': 'nuevos-ingresos'
+            };
+            
+            const mappedTabName = tabMapping[tabName] || tabName;
             document.querySelector(`[onclick="cambiarTab('${tabName}')"]`).classList.add('active');
             
             // Actualizar contenido
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
             });
-            document.getElementById(`tab-${tabName}`).classList.add('active');
+            document.getElementById(`tab-${mappedTabName}`).classList.add('active');
             
             // Redibujar DataTable si es necesario
             if (tabName === 'beneficiarios' && tablaBeneficiarios) {
                 setTimeout(() => {
                     try {
-                        tablaBeneficiarios.columns.adjust().responsive.recalc();
+                        tablaBeneficiarios.columns.adjust();
                         console.log('Tabla redibujada');
                     } catch (error) {
                         console.error('Error al redibujar tabla:', error);
@@ -2322,13 +2502,6 @@ if (isset($_SESSION['beneficiarios_fuera_linea'])) {
                 console.error('DataTables no está cargado');
             } else {
                 console.log('DataTables cargado correctamente');
-            }
-            
-            // Verificar que Responsive esté cargado
-            if (typeof $.fn.dataTable.Responsive === 'undefined') {
-                console.error('DataTables Responsive no está cargado');
-            } else {
-                console.log('DataTables Responsive cargado correctamente');
             }
         });
     </script>

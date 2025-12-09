@@ -44,7 +44,7 @@ if (!isset($currentPage)) {
                 </a>
             </li>
             <li>
-                <a href="#" class="flex items-center p-2 hover:bg-green-700 rounded-lg">
+                <a href="../../views/reportes/reportes.php" class="flex items-center p-2 hover:bg-green-700 rounded-lg">
                     <i class="fas fa-chart-bar mr-3"></i>
                     <span class="sidebar-text">Reportes</span>
                 </a>
