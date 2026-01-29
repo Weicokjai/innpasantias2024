@@ -1,7 +1,8 @@
 <?php
 class Database {
-    private $host = "localhost";
-    private $db_name = "inn";
+    // Cambiamos localhost por 127.0.0.1:3307
+    private $host = "127.0.0.1:3307"; 
+    private $db_name = "inn10";
     private $username = "root";
     private $password = "";
     public $conn;
@@ -17,8 +18,8 @@ class Database {
             $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             return $this->conn;
         } catch(PDOException $exception) {
-            // Para debug, muestra el error
-            error_log("Error de conexión DB: " . $exception->getMessage());
+            // Muestra el error real en pantalla para saber qué pasa si falla
+            echo "Error de conexión: " . $exception->getMessage();
             return null;
         }
     }

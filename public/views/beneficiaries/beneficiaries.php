@@ -1,23 +1,57 @@
 <?php
 session_start();
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 $currentPage = 'Beneficiarios';
 $currentUser = ['name' => 'Dr. Carlos Méndez', 'role' => 'Nutriólogo'];
 
+// Rutas absolutas
+$base_dir = dirname(__FILE__, 3);
+
 // Incluir dependencias
-include_once '../../config/database.php';
-include_once '../../components/beneficiaries/BeneficiarioModel.php';
-include_once '../../components/beneficiaries/BeneficiarioController.php';
+require_once $base_dir . '/config/database.php';
+require_once $base_dir . '/components/beneficiaries/BeneficiarioModel.php';
+require_once $base_dir . '/components/beneficiaries/BeneficiarioController.php';
 
-// Inicializar
-$database = new Database();
-$db = $database->getConnection();
-$controller = new BeneficiarioController($db);
-
-// Manejar solicitudes
-$controller->handleRequest();
-
-// Obtener datos
-$beneficiarios = $controller->getAllBeneficiariosFormatted();
+try {
+    // Inicializar conexión
+    $database = new Database();
+    $db = $database->getConnection();
+    
+    if (!$db) {
+        throw new Exception("No se pudo conectar a la base de datos");
+    }
+    
+    // Inicializar controlador
+    $controller = new BeneficiarioController($db);
+    
+    // Manejar solicitudes POST
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $controller->handleRequest();
+    }
+    
+    // Obtener datos para la vista
+    $beneficiarios = $controller->getAllBeneficiariosFormatted();
+    $nuevosIngresos = $controller->getNuevosIngresosFormatted();
+    
+    // Obtener datos para filtros
+    $filtrosData = $controller->getFiltrosData();
+    $municipios = $filtrosData['municipios'];
+    $parroquiasPorMunicipio = $filtrosData['parroquias_por_municipio'];
+    $sectoresPorParroquia = $filtrosData['sectores_por_parroquia'];
+    
+    // Convertir a JSON para JavaScript
+    $parroquias_json = json_encode($parroquiasPorMunicipio);
+    $sectores_json = json_encode($sectoresPorParroquia);
+    
+    // Contadores
+    $totalBeneficiarios = count($beneficiarios);
+    $totalNuevosIngresos = count($nuevosIngresos);
+    
+} catch (Exception $e) {
+    die("Error: " . $e->getMessage());
+}
 
 // Función para escape seguro de HTML
 function e($string) {
@@ -26,120 +60,46 @@ function e($string) {
 
 // Función para formatear números
 function formatearNumero($valor, $decimales = 2) {
-    if ($valor === null || $valor === '') {
-        return '';
+    if ($valor === null || $valor === '' || $valor === false || $valor == 0) {
+        return 'N/A';
     }
-    // Convertir a float y formatear
     $numero = floatval($valor);
     return number_format($numero, $decimales, ',', '.');
 }
 
-// Función para procesar datos de filtros de manera eficiente
-function procesarFiltrosEficiente($beneficiarios) {
-    $municipios = [];
-    $parroquiasPorMunicipio = [];
-    $sectoresPorParroquia = [];
-    $parroquiasUnicas = [];
-    $sectoresUnicos = [];
-    
-    foreach($beneficiarios as $beneficiario) {
-        // Usar isset para mejor performance con arrays grandes
-        $municipio = $beneficiario['municipio'] ?? '';
-        $parroquia = $beneficiario['parroquia'] ?? '';
-        $sector = $beneficiario['sector'] ?? '';
-        
-        if ($municipio && !isset($municipios[$municipio])) {
-            $municipios[$municipio] = true;
-        }
-        
-        if ($municipio && $parroquia) {
-            if (!isset($parroquiasPorMunicipio[$municipio])) {
-                $parroquiasPorMunicipio[$municipio] = [];
-            }
-            if (!isset($parroquiasPorMunicipio[$municipio][$parroquia])) {
-                $parroquiasPorMunicipio[$municipio][$parroquia] = true;
-            }
-            
-            if (!isset($parroquiasUnicas[$parroquia])) {
-                $parroquiasUnicas[$parroquia] = true;
-            }
-        }
-        
-        if ($parroquia && $sector) {
-            if (!isset($sectoresPorParroquia[$parroquia])) {
-                $sectoresPorParroquia[$parroquia] = [];
-            }
-            if (!isset($sectoresPorParroquia[$parroquia][$sector])) {
-                $sectoresPorParroquia[$parroquia][$sector] = true;
-            }
-            
-            if (!isset($sectoresUnicos[$sector])) {
-                $sectoresUnicos[$sector] = true;
-            }
-        }
-    }
-    
-    // Convertir a arrays simples y ordenar
-    $municipiosArray = array_keys($municipios);
-    $parroquiasArray = array_keys($parroquiasUnicas);
-    $sectoresArray = array_keys($sectoresUnicos);
-    
-    sort($municipiosArray);
-    sort($parroquiasArray);
-    sort($sectoresArray);
-    
-    // Procesar arrays anidados
-    foreach ($parroquiasPorMunicipio as $municipio => $parroquias) {
-        $parroquiasArray = array_keys($parroquias);
-        sort($parroquiasArray);
-        $parroquiasPorMunicipio[$municipio] = $parroquiasArray;
-    }
-    
-    foreach ($sectoresPorParroquia as $parroquia => $sectores) {
-        $sectoresArray = array_keys($sectores);
-        sort($sectoresArray);
-        $sectoresPorParroquia[$parroquia] = $sectoresArray;
-    }
-    
-    return [
-        'municipios' => $municipiosArray,
-        'parroquias_unicas' => array_keys($parroquiasUnicas),
-        'sectores_unicos' => array_keys($sectoresUnicos),
-        'parroquias_por_municipio' => $parroquiasPorMunicipio,
-        'sectores_por_parroquia' => $sectoresPorParroquia
-    ];
-}
-
-// Formatear los datos de beneficiarios
+// Formatear datos de beneficiarios
 foreach($beneficiarios as &$beneficiario) {
-    $beneficiario['peso'] = formatearNumero($beneficiario['peso'], 1);
-    $beneficiario['talla'] = formatearNumero($beneficiario['talla'], 1);
-    $beneficiario['cbi'] = formatearNumero($beneficiario['cbi'], 1);
-    $beneficiario['imc'] = formatearNumero($beneficiario['imc'], 2);
+    // Mapear los campos correctamente
+    $beneficiario['peso'] = formatearNumero($beneficiario['peso_kg'] ?? null, 1);
+    $beneficiario['talla'] = formatearNumero($beneficiario['talla_cm'] ?? null, 1);
+    $beneficiario['cbi'] = formatearNumero($beneficiario['cbi_mm'] ?? null, 1);
+    $beneficiario['imc'] = formatearNumero($beneficiario['imc'] ?? null, 2);
+    $beneficiario['caso'] = $beneficiario['situacion_dx'] ?? 'N/A';
+    $beneficiario['estado'] = $beneficiario['status'] ?? 'Activo';
+    // Asegurar que el género tenga un valor por defecto
+    $beneficiario['genero'] = $beneficiario['genero'] ?? '';
+    // Asegurar que las condiciones femeninas tengan valores por defecto
+    $beneficiario['condicion_femenina'] = $beneficiario['condicion_femenina'] ?? 'nada';
+    $beneficiario['fecha_nacimiento_bebe'] = $beneficiario['fecha_nacimiento_bebe'] ?? '';
+    $beneficiario['semanas_gestacion'] = $beneficiario['semanas_gestacion'] ?? '';
 }
 
-// Procesar filtros de manera eficiente
-$filtros = procesarFiltrosEficiente($beneficiarios);
-$municipios = $filtros['municipios'];
-$parroquias = $filtros['parroquias_unicas'];
-$sectores = $filtros['sectores_unicos'];
-$parroquiasPorMunicipio = $filtros['parroquias_por_municipio'];
-$sectoresPorParroquia = $filtros['sectores_por_parroquia'];
-
-// Convertir a JSON para usar en JavaScript
-$parroquias_json = json_encode($parroquiasPorMunicipio);
-$sectores_json = json_encode($sectoresPorParroquia);
-
-// Simular datos para "nuevos ingresos" (personas no registradas en la data principal)
-$nuevosIngresos = [];
-if (isset($_SESSION['beneficiarios_nuevos_ingresos'])) {
-    $nuevosIngresos = $_SESSION['beneficiarios_nuevos_ingresos'];
+// Formatear datos de nuevos ingresos
+foreach($nuevosIngresos as &$ingreso) {
+    $ingreso['peso'] = formatearNumero($ingreso['peso_kg'] ?? $ingreso['peso'] ?? null, 1);
+    $ingreso['talla'] = formatearNumero($ingreso['talla_cm'] ?? $ingreso['talla'] ?? null, 1);
+    $ingreso['cbi'] = formatearNumero($ingreso['cbi_mm'] ?? $ingreso['cbi'] ?? null, 1);
+    $ingreso['imc'] = formatearNumero($ingreso['imc'] ?? null, 2);
+    $ingreso['caso'] = $ingreso['situacion_dx'] ?? 'N/A';
+    // Asegurar que el género tenga un valor por defecto
+    $ingreso['genero'] = $ingreso['genero'] ?? '';
+    // Asegurar que las condiciones femeninas tengan valores por defecto
+    $ingreso['condicion_femenina'] = $ingreso['condicion_femenina'] ?? 'nada';
+    $ingreso['fecha_nacimiento_bebe'] = $ingreso['fecha_nacimiento_bebe'] ?? '';
+    $ingreso['semanas_gestacion'] = $ingreso['semanas_gestacion'] ?? '';
 }
-
-// Contadores para badges
-$totalBeneficiarios = count($beneficiarios);
-$totalNuevosIngresos = count($nuevosIngresos);
 ?>
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -148,11 +108,34 @@ $totalNuevosIngresos = count($nuevosIngresos);
     <title>Beneficiarios - Instituto Nacional de Nutrición</title>
     <link href="/innpasantias2024/public/assets/css/output.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- SOLO DataTables básico - SIN CSS responsive -->
+    <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <!-- DataTables Buttons CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css">
     <style>
-        .modal-backup { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; padding: 20px; }
-        .modal-content-backup { background: white; border-radius: 12px; width: 100%; max-width: 800px; max-height: 90vh; overflow: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        /* ESTILOS GENERALES */
+        .modal-backup { 
+            display: none; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: rgba(0,0,0,0.5); 
+            z-index: 10000; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 20px; 
+        }
+        .modal-content-backup { 
+            background: white; 
+            border-radius: 12px; 
+            width: 100%; 
+            max-width: 900px; 
+            max-height: 90vh; 
+            overflow-y: auto; 
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); 
+        }
         
         .tab-button {
             padding: 0.75rem 1.5rem;
@@ -220,7 +203,7 @@ $totalNuevosIngresos = count($nuevosIngresos);
             max-width: 1000px;
         }
         
-        /* Personalización de DataTables para que use Tailwind */
+        /* Personalización de DataTables */
         .dataTables_wrapper .dataTables_length,
         .dataTables_wrapper .dataTables_filter,
         .dataTables_wrapper .dataTables_info,
@@ -259,21 +242,19 @@ $totalNuevosIngresos = count($nuevosIngresos);
             border-color: #16a34a !important;
         }
         
-        /* TABLA AL 100% SIN SCROLL HORIZONTAL */
+        /* TABLA CON SCROLL HORIZONTAL */
         .dataTables_wrapper {
             width: 100% !important;
             max-width: 100% !important;
-            overflow: hidden !important; /* Eliminar scroll horizontal */
         }
         
         #tabla-beneficiarios {
             width: 100% !important;
-            max-width: 100% !important;
+            min-width: 1200px;
             border-collapse: collapse !important;
-            table-layout: fixed !important; /* Distribución fija de columnas */
         }
         
-        /* Sobrescribir estilos de DataTables para que sean consistentes con Tailwind */
+        /* Estilos de la tabla */
         #tabla-beneficiarios thead th {
             background-color: #f9fafb !important;
             border-bottom: 2px solid #e5e7eb !important;
@@ -292,7 +273,7 @@ $totalNuevosIngresos = count($nuevosIngresos);
             vertical-align: top !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
-            white-space: normal !important; /* Permitir saltos de línea */
+            white-space: normal !important;
             word-wrap: break-word !important;
         }
         
@@ -300,7 +281,7 @@ $totalNuevosIngresos = count($nuevosIngresos);
             background-color: #f9fafb !important;
         }
         
-        /* Deshabilitar completamente el responsive de DataTables */
+        /* Deshabilitar responsive de DataTables */
         .dtr-details,
         .dtr-title,
         .dtr-data,
@@ -315,14 +296,16 @@ $totalNuevosIngresos = count($nuevosIngresos);
             display: table-cell !important;
         }
         
-        /* ELIMINAR scroll horizontal en contenedor */
+        /* Contenedor con scroll horizontal */
         .tabla-contenedor {
             width: 100%;
             max-width: 100%;
-            overflow: hidden !important; /* Sin scroll */
+            overflow-x: auto !important;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
         }
         
-        /* Estilos para números formateados */
+        /* Estilos para números */
         .numero-formateado {
             font-family: monospace;
             font-weight: 600;
@@ -348,39 +331,45 @@ $totalNuevosIngresos = count($nuevosIngresos);
             font-weight: 700;
         }
         
-        /* Distribución proporcional de ancho de columnas */
+        /* Distribución de columnas */
         #tabla-beneficiarios th:nth-child(1),
-        #tabla-beneficiarios td:nth-child(1) { /* Ubicación */
-            width: 20% !important;
+        #tabla-beneficiarios td:nth-child(1) {
+            width: 15% !important;
+            min-width: 150px;
         }
         
         #tabla-beneficiarios th:nth-child(2),
-        #tabla-beneficiarios td:nth-child(2) { /* Representante */
+        #tabla-beneficiarios td:nth-child(2) {
             width: 18% !important;
+            min-width: 180px;
         }
         
         #tabla-beneficiarios th:nth-child(3),
-        #tabla-beneficiarios td:nth-child(3) { /* Beneficiario */
-            width: 22% !important;
+        #tabla-beneficiarios td:nth-child(3) {
+            width: 20% !important;
+            min-width: 200px;
         }
         
         #tabla-beneficiarios th:nth-child(4),
-        #tabla-beneficiarios td:nth-child(4) { /* Antropometría */
-            width: 18% !important;
+        #tabla-beneficiarios td:nth-child(4) {
+            width: 20% !important;
+            min-width: 200px;
         }
         
         #tabla-beneficiarios th:nth-child(5),
-        #tabla-beneficiarios td:nth-child(5) { /* Caso */
+        #tabla-beneficiarios td:nth-child(5) {
             width: 12% !important;
+            min-width: 120px;
         }
         
         #tabla-beneficiarios th:nth-child(6),
-        #tabla-beneficiarios td:nth-child(6) { /* Acciones */
-            width: 10% !important;
+        #tabla-beneficiarios td:nth-child(6) {
+            width: 15% !important;
+            min-width: 150px;
             text-align: center;
         }
         
-        /* Ajustes para contenido largo */
+        /* Texto truncado */
         .texto-truncado {
             overflow: hidden;
             text-overflow: ellipsis;
@@ -389,71 +378,690 @@ $totalNuevosIngresos = count($nuevosIngresos);
             max-width: 100%;
         }
         
-        /* En pantallas pequeñas, forzar que la tabla se ajuste sin scroll */
-        @media screen and (max-width: 768px) {
-            .dataTables_wrapper {
-                overflow-x: hidden !important;
-            }
-            
-            #tabla-beneficiarios {
-                min-width: 100% !important; /* Forzar ancho mínimo del 100% */
-            }
-            
-            /* Ajustar tamaños de columna en móviles */
-            #tabla-beneficiarios th:nth-child(1),
-            #tabla-beneficiarios td:nth-child(1) { width: 18% !important; }
-            
-            #tabla-beneficiarios th:nth-child(2),
-            #tabla-beneficiarios td:nth-child(2) { width: 17% !important; }
-            
-            #tabla-beneficiarios th:nth-child(3),
-            #tabla-beneficiarios td:nth-child(3) { width: 20% !important; }
-            
-            #tabla-beneficiarios th:nth-child(4),
-            #tabla-beneficiarios td:nth-child(4) { width: 17% !important; }
-            
-            #tabla-beneficiarios th:nth-child(5),
-            #tabla-beneficiarios td:nth-child(5) { width: 13% !important; }
-            
-            #tabla-beneficiarios th:nth-child(6),
-            #tabla-beneficiarios td:nth-child(6) { width: 15% !important; }
+        /* ==================== */
+        /* BOTONES DE DATATABLES CORREGIDOS */
+        /* ==================== */
+        
+        /* Contenedor de botones */
+        .dt-buttons {
+            display: inline-block !important;
+            float: none !important;
+            margin: 0 0 15px 0 !important;
+            padding: 0 !important;
+            background: none !important;
+            border: none !important;
         }
         
-        /* En pantallas muy pequeñas, hacer que el texto se ajuste mejor */
+        /* Botones principales */
+        .dt-button {
+            position: relative !important;
+            display: inline-block !important;
+            min-width: 80px !important;
+            padding: 10px 16px !important;
+            margin: 0 5px 5px 0 !important;
+            font-family: inherit !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            line-height: 1.2 !important;
+            text-align: center !important;
+            text-decoration: none !important;
+            white-space: nowrap !important;
+            vertical-align: middle !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            border: 1px solid transparent !important;
+            border-radius: 8px !important;
+            transition: all 0.2s ease-in-out !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+            background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important;
+            color: white !important;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1) !important;
+        }
+        
+        /* Hover effect */
+        .dt-button:hover {
+            background: linear-gradient(135deg, #15803d 0%, #166534 100%) !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
+        }
+        
+        /* Active state */
+        .dt-button:active {
+            transform: translateY(0) !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+        }
+        
+        /* Botón Excel */
+        .dt-button.buttons-excel {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+        }
+        
+        .dt-button.buttons-excel:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+        }
+        
+        /* Botón Imprimir */
+        .dt-button.buttons-print {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+        }
+        
+        .dt-button.buttons-print:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+        }
+        
+        /* Botón Copiar */
+        .dt-button.buttons-copy {
+            background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%) !important;
+        }
+        
+        .dt-button.buttons-copy:hover {
+            background: linear-gradient(135deg, #4b5563 0%, #374151 100%) !important;
+        }
+        
+        /* Botón PDF */
+        .dt-button.buttons-pdf {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+        }
+        
+        .dt-button.buttons-pdf:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+        }
+        
+        /* Botón Exportar Consolidado */
+        .dt-button.buttons-consolidado {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+        }
+        
+        .dt-button.buttons-consolidado:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+        }
+        
+        /* Botón Formato PDF */
+        .dt-button.buttons-formatopdf {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+        }
+        
+        .dt-button.buttons-formatopdf:hover {
+            background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%) !important;
+        }
+        
+        /* Iconos dentro de botones */
+        .dt-button i {
+            margin-right: 6px !important;
+            font-size: 14px !important;
+        }
+        
+        /* Color púrpura para botones personalizados */
+        .bg-purple-600 {
+            background-color: #7c3aed !important;
+        }
+        
+        .bg-purple-600:hover {
+            background-color: #6d28d9 !important;
+        }
+        
+        /* Responsive para botones */
+        @media screen and (max-width: 768px) {
+            .dt-buttons {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                justify-content: center !important;
+            }
+            
+            .dt-button {
+                min-width: 70px !important;
+                padding: 8px 12px !important;
+                font-size: 13px !important;
+                margin: 0 !important;
+            }
+        }
+        
         @media screen and (max-width: 640px) {
+            .dt-button {
+                padding: 6px 10px !important;
+                font-size: 12px !important;
+                min-width: 60px !important;
+            }
+            
+            .dt-button i {
+                margin-right: 4px !important;
+                font-size: 12px !important;
+            }
+            
+            /* Ajustes de tabla en móviles */
             #tabla-beneficiarios th,
             #tabla-beneficiarios td {
                 padding: 0.5rem 0.75rem !important;
                 font-size: 0.875rem !important;
             }
             
-            /* Reducir aún más los anchos */
             #tabla-beneficiarios th:nth-child(1),
-            #tabla-beneficiarios td:nth-child(1) { width: 16% !important; }
+            #tabla-beneficiarios td:nth-child(1) { min-width: 140px !important; }
             
             #tabla-beneficiarios th:nth-child(2),
-            #tabla-beneficiarios td:nth-child(2) { width: 16% !important; }
+            #tabla-beneficiarios td:nth-child(2) { min-width: 160px !important; }
             
             #tabla-beneficiarios th:nth-child(3),
-            #tabla-beneficiarios td:nth-child(3) { width: 18% !important; }
+            #tabla-beneficiarios td:nth-child(3) { min-width: 180px !important; }
             
             #tabla-beneficiarios th:nth-child(4),
-            #tabla-beneficiarios td:nth-child(4) { width: 16% !important; }
+            #tabla-beneficiarios td:nth-child(4) { min-width: 180px !important; }
             
             #tabla-beneficiarios th:nth-child(5),
-            #tabla-beneficiarios td:nth-child(5) { width: 14% !important; }
+            #tabla-beneficiarios td:nth-child(5) { min-width: 110px !important; }
             
             #tabla-beneficiarios th:nth-child(6),
-            #tabla-beneficiarios td:nth-child(6) { width: 20% !important; }
-            
-            /* Ocultar elementos menos importantes en móviles */
-            #tabla-beneficiarios td .text-xs.text-gray-400 {
-                display: none;
+            #tabla-beneficiarios td:nth-child(6) { min-width: 140px !important; }
+        }
+        
+        /* Botón personalizado para exportar consolidado */
+        .btn-exportar-consolidado {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+            color: white !important;
+            border: none !important;
+            padding: 10px 16px !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease-in-out !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        }
+        
+        .btn-exportar-consolidado:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
+        }
+        
+        /* Botón personalizado para formato PDF */
+        .btn-formato-pdf {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+            color: white !important;
+            border: none !important;
+            padding: 10px 16px !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease-in-out !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        }
+        
+        .btn-formato-pdf:hover {
+            background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%) !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
+        }
+        
+        /* Mensaje de filtros aplicados */
+        .mensaje-filtros {
+            background-color: #dbeafe;
+            border: 1px solid #bfdbfe;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        
+        .mensaje-filtros.show {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .mensaje-filtros strong {
+            color: #1e40af;
+        }
+        
+        /* Loader para exportación */
+        .export-loader {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #4F81BD;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            z-index: 9999;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            font-weight: bold;
+        }
+        
+        /* Loader para formato PDF */
+        .pdf-loader {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #dc2626;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            z-index: 9999;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            font-weight: bold;
+        }
+        
+        /* ==================== */
+        /* ESTILOS PARA MODAL NUEVO INGRESO */
+        /* ==================== */
+        
+        .modal-nuevo-ingreso {
+            z-index: 10002;
+        }
+        
+        .modal-header-nuevo-ingreso {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header-nuevo-ingreso h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .modal-header-nuevo-ingreso button {
+            color: white;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .modal-header-nuevo-ingreso button:hover {
+            opacity: 0.8;
+        }
+        
+        /* Estilos para secciones del formulario */
+        .form-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .form-section:last-child {
+            border-bottom: none;
+        }
+        
+        .form-section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .form-section-title i {
+            color: #f59e0b;
+        }
+        
+        /* Estilos para grupos de formulario */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #374151;
+        }
+        
+        .form-group .required::after {
+            content: " *";
+            color: #ef4444;
+        }
+        
+        .form-group .form-control {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+        
+        .form-group .form-control:focus {
+            outline: none;
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+        }
+        
+        .form-group .form-control:disabled {
+            background-color: #f9fafb;
+            color: #6b7280;
+        }
+        
+        .form-group .form-control[readonly] {
+            background-color: #f3f4f6;
+            color: #6b7280;
+        }
+        
+        /* Estilos para radio buttons personalizados */
+        .radio-group {
+            display: flex;
+            gap: 2rem;
+            margin-top: 0.5rem;
+        }
+        
+        .radio-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            padding: 0.5rem 0;
+        }
+        
+        .radio-input {
+            width: 1.25rem;
+            height: 1.25rem;
+            margin-right: 0.75rem;
+            cursor: pointer;
+            accent-color: #f59e0b;
+        }
+        
+        .radio-text {
+            font-size: 1rem;
+            color: #374151;
+            font-weight: 500;
+        }
+        
+        /* Estilos para condicionales de género */
+        .condicional-genero {
+            display: none;
+            animation: fadeIn 0.3s ease-in;
+            background-color: #fffbeb;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid #fef3c7;
+            margin-top: 1.5rem;
+        }
+        
+        .condicional-genero.show {
+            display: block;
+        }
+        
+        .condicional-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #92400e;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        /* Estilos para opciones de condición femenina */
+        .condicion-femenina-group {
+            margin-top: 1rem;
+        }
+        
+        .condicion-femenina-radio {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        
+        .condicion-femenina-radio input[type="radio"] {
+            margin-right: 0.5rem;
+            accent-color: #d97706;
+        }
+        
+        .condicion-femenina-radio label {
+            font-weight: 500;
+            color: #374151;
+            cursor: pointer;
+        }
+        
+        .condicion-subseccion {
+            display: none;
+            margin-top: 1rem;
+            padding-left: 1.5rem;
+            border-left: 2px solid #fbbf24;
+            background-color: #fffbeb;
+            padding: 1rem;
+            border-radius: 0.5rem;
+        }
+        
+        .condicion-subseccion.show {
+            display: block;
+            animation: slideIn 0.3s ease-in;
+        }
+        
+        @keyframes slideIn {
+            from { 
+                opacity: 0;
+                transform: translateX(-10px);
             }
-            
-            #tabla-beneficiarios td .text-xs.text-gray-500 {
-                font-size: 0.75rem;
+            to { 
+                opacity: 1;
+                transform: translateX(0);
             }
+        }
+        
+        /* Estilos para sección de antropometría con colores */
+        .antropometria-section {
+            background-color: #eff6ff;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid #bfdbfe;
+        }
+        
+        .antropometria-title {
+            color: #1e40af;
+            font-weight: 600;
+            font-size: 1.125rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .antropometria-subtitle {
+            color: #3b82f6;
+            font-size: 0.875rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .antropometria-input {
+            border-color: #93c5fd !important;
+            background-color: white;
+        }
+        
+        .antropometria-input:focus {
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+        }
+        
+        .imc-calculado {
+            background-color: #dbeafe !important;
+            color: #1e40af !important;
+            font-weight: 600 !important;
+            border-color: #bfdbfe !important;
+        }
+        
+        /* Estilos para sección de situación */
+        .situacion-section {
+            background-color: #f0fdf4;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid #bbf7d0;
+        }
+        
+        .situacion-title {
+            color: #15803d;
+            font-weight: 600;
+            font-size: 1.125rem;
+            margin-bottom: 1rem;
+        }
+        
+        .caso-option {
+            background-color: white;
+            border: 2px solid #d1fae5;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .caso-option:hover {
+            border-color: #34d399;
+            transform: translateY(-2px);
+        }
+        
+        .caso-option.selected {
+            border-color: #10b981;
+            background-color: #f0fdf4;
+        }
+        
+        .caso-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .caso-radio {
+            width: 1.25rem;
+            height: 1.25rem;
+            accent-color: #10b981;
+        }
+        
+        .caso-name {
+            font-weight: 600;
+            color: #065f46;
+            font-size: 1.125rem;
+        }
+        
+        .caso-description {
+            color: #047857;
+            font-size: 0.875rem;
+            line-height: 1.4;
+        }
+        
+        /* Estilos para botones del modal */
+        .modal-footer {
+            padding: 1.5rem;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+        }
+        
+        .btn-cancelar {
+            padding: 0.75rem 1.5rem;
+            background-color: white;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            color: #374151;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-cancelar:hover {
+            background-color: #f9fafb;
+            border-color: #9ca3af;
+        }
+        
+        .btn-guardar-nuevo-ingreso {
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            border: none;
+            border-radius: 0.5rem;
+            color: white;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn-guardar-nuevo-ingreso:hover {
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px rgba(214, 158, 46, 0.2);
+        }
+        
+        /* Estilos para botones en la pestaña de nuevos ingresos */
+        .btn-registrar-nuevo-ingreso {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn-registrar-nuevo-ingreso:hover {
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(214, 158, 46, 0.2);
+        }
+        
+        .btn-incorporar-todo {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn-incorporar-todo:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+        }
+        
+        /* Estilos para iconos dentro de los botones */
+        .btn-icon {
+            font-size: 1rem;
+        }
+        
+        /* Grid responsive para formulario */
+        @media (max-width: 768px) {
+            .grid-responsive {
+                grid-template-columns: 1fr !important;
+            }
+        }
+        
+        /* Estilos para campos requeridos */
+        .required-label {
+            position: relative;
+        }
+        
+        .required-label::after {
+            content: "*";
+            color: #ef4444;
+            margin-left: 4px;
         }
     </style>
 </head>
@@ -493,21 +1101,13 @@ $totalNuevosIngresos = count($nuevosIngresos);
                 <div id="tab-beneficiarios" class="tab-content active">
                     <!-- Filtros para Beneficiarios -->
                     <div class="bg-white rounded-xl shadow p-6 mb-6">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg font-semibold">Filtros</h3>
-                            <div class="flex gap-2">
-                                <button id="btn-aplicar-filtros" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 whitespace-nowrap">
-                                    <i class="fas fa-filter mr-2"></i>Aplicar Filtros
-                                </button>
-                                <button id="btn-limpiar-filtros" class="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition duration-200 whitespace-nowrap">
-                                    <i class="fas fa-times mr-2"></i>Limpiar
-                                </button>
-                            </div>
+                        <div class="mb-4">
+                            <h4 class="text-lg font-medium text-gray-800 mb-2">Filtros de Búsqueda</h4>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Municipio</label>
-                                <select id="filtro-municipio" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <select id="filtro-municipio" class="filtro-select w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                     <option value="">Todos</option>
                                     <?php foreach($municipios as $municipio): ?>
                                         <option value="<?php echo e($municipio); ?>"><?php echo e($municipio); ?></option>
@@ -516,29 +1116,53 @@ $totalNuevosIngresos = count($nuevosIngresos);
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Parroquia</label>
-                                <select id="filtro-parroquia" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                    <option value="">Todas</option>
-                                    <?php foreach($parroquias as $parroquia): ?>
-                                        <option value="<?php echo e($parroquia); ?>"><?php echo e($parroquia); ?></option>
-                                    <?php endforeach; ?>
+                                <select id="filtro-parroquia" class="filtro-select w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" disabled>
+                                    <option value="">Primero seleccione municipio</option>
                                 </select>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Sector</label>
-                                <select id="filtro-sector" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                    <option value="">Todos</option>
-                                    <?php foreach($sectores as $sector): ?>
-                                        <option value="<?php echo e($sector); ?>"><?php echo e($sector); ?></option>
-                                    <?php endforeach; ?>
+                                <select id="filtro-sector" class="filtro-select w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" disabled>
+                                    <option value="">Primero seleccione parroquia</option>
                                 </select>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Caso</label>
-                                <select id="filtro-caso" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                <select id="filtro-caso" class="filtro-select w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                     <option value="">Todos</option>
                                     <option value="1">Caso 1</option>
                                     <option value="2">Caso 2</option>
                                 </select>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 mt-4">
+                            <button id="btn-aplicar-filtros" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 whitespace-nowrap">
+                                <i class="fas fa-filter mr-2"></i>Aplicar Filtros
+                            </button>
+                            <button id="btn-limpiar-filtros" class="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition duration-200 whitespace-nowrap">
+                                <i class="fas fa-times mr-2"></i>Limpiar
+                            </button>
+                            <!-- BOTÓN NUEVO PARA EXPORTAR CONSOLIDADO CON COLOR PÚRPURA -->
+                            <button onclick="exportarConsolidadoExcel()" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition duration-200 whitespace-nowrap">
+                                <i class="fas fa-file-excel mr-2"></i>Exportar Consolidado
+                            </button>
+                            <!-- BOTÓN PARA GENERAR FORMATO PDF -->
+                            <button onclick="generarFormatoPDF()" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition duration-200 whitespace-nowrap">
+                                <i class="fas fa-file-pdf mr-2"></i>Formato para Imprimir
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Mensaje de filtros aplicados -->
+                    <div id="mensaje-filtros" class="mensaje-filtros">
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-info-circle text-blue-500"></i>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm text-blue-700">
+                                    <strong>Filtros aplicados:</strong> <span id="texto-filtros">Sin filtros</span>
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -546,137 +1170,177 @@ $totalNuevosIngresos = count($nuevosIngresos);
                     <!-- Tabla de Beneficiarios -->
                     <div class="bg-white rounded-xl shadow overflow-hidden">
                         <div class="p-6 border-b border-gray-200">
-                            <h3 class="text-lg font-semibold">Lista de Beneficiarios Registrados</h3>
-                            <p class="text-sm text-gray-600">Total: <span id="total-registros"><?php echo e($totalBeneficiarios); ?></span> registros</p>
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h3 class="text-lg font-semibold">Lista de Beneficiarios Registrados</h3>
+                                    <p class="text-sm text-gray-600">Total: <span id="total-registros"><?php echo e($totalBeneficiarios); ?></span> registros</p>
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="p-6 tabla-contenedor">
-                            <table id="tabla-beneficiarios" class="min-w-full divide-y divide-gray-200">
-                                <thead>
-                                    <tr class="bg-gray-50">
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Representante</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficiario</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Antropometría</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Caso</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200">
-                                    <?php foreach($beneficiarios as $beneficiario): 
-                                        // Determinar clase CSS para IMC
-                                        $imc_class = 'numero-formateado';
-                                        $imc_valor = floatval(str_replace(',', '.', $beneficiario['imc']));
-                                        
-                                        if ($imc_valor < 18.5) {
-                                            $imc_class .= ' imc-bajo';
-                                        } elseif ($imc_valor >= 18.5 && $imc_valor < 25) {
-                                            $imc_class .= ' imc-normal';
-                                        } elseif ($imc_valor >= 25 && $imc_valor < 30) {
-                                            $imc_class .= ' imc-sobrepeso';
-                                        } elseif ($imc_valor >= 30) {
-                                            $imc_class .= ' imc-obeso';
-                                        }
-                                    ?>
-                                    <tr class="hover:bg-gray-50" 
-                                        data-municipio="<?php echo e($beneficiario['municipio']); ?>"
-                                        data-parroquia="<?php echo e($beneficiario['parroquia']); ?>"
-                                        data-sector="<?php echo e($beneficiario['sector']); ?>"
-                                        data-caso="<?php echo e($beneficiario['caso']); ?>"
-                                        data-id="<?php echo e($beneficiario['id'] ?? ''); ?>"
-                                        data-peso="<?php echo e(str_replace(',', '.', $beneficiario['peso'])); ?>"
-                                        data-talla="<?php echo e(str_replace(',', '.', $beneficiario['talla'])); ?>"
-                                        data-cbi="<?php echo e(str_replace(',', '.', $beneficiario['cbi'])); ?>"
-                                        data-imc="<?php echo e(str_replace(',', '.', $beneficiario['imc'])); ?>">
-                                        <td class="px-4 py-3">
-                                            <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['municipio']); ?>">
-                                                <?php echo e($beneficiario['municipio']); ?>
-                                            </div>
-                                            <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['parroquia']); ?>">
-                                                <?php echo e($beneficiario['parroquia']); ?>
-                                            </div>
-                                            <div class="text-xs text-gray-400 texto-truncado" title="<?php echo e($beneficiario['sector']); ?>">
-                                                <?php echo e($beneficiario['sector']); ?>
-                                            </div>
-                                        </td>
-                                        
-                                        <td class="px-4 py-3">
-                                            <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['nombre_representante']); ?>">
-                                                <?php echo e($beneficiario['nombre_representante']); ?>
-                                            </div>
-                                            <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['cedula_representante']); ?>">
-                                                <?php echo e($beneficiario['cedula_representante']); ?>
-                                            </div>
-                                        </td>
-                                        
-                                        <td class="px-4 py-3">
-                                            <div class="flex items-center">
-                                                <div class="flex-shrink-0 h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                                    <i class="fas fa-child text-blue-600 text-xs"></i>
+                            <?php if(empty($beneficiarios)): ?>
+                                <div class="text-center py-12">
+                                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
+                                        <i class="fas fa-users text-green-600 text-2xl"></i>
+                                    </div>
+                                    <h4 class="text-lg font-medium text-gray-900 mb-2">No hay beneficiarios registrados</h4>
+                                    <p class="text-gray-600 max-w-md mx-auto">
+                                        No se han encontrado beneficiarios activos en la base de datos.
+                                    </p>
+                                    <div class="mt-6">
+                                        <button onclick="abrirModalNuevoBeneficiario()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200">
+                                            <i class="fas fa-user-plus mr-2"></i>Registrar Primer Beneficiario
+                                        </button>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <table id="tabla-beneficiarios" class="min-w-full divide-y divide-gray-200">
+                                    <thead>
+                                        <tr class="bg-gray-50">
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ubicación</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Representante</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficiario</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Antropometría</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Caso</th>
+                                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200">
+                                        <?php foreach($beneficiarios as $beneficiario): 
+                                            // Determinar clase CSS para IMC
+                                            $imc_class = 'numero-formateado';
+                                            if (!empty($beneficiario['imc'])) {
+                                                $imc_valor = floatval(str_replace(',', '.', $beneficiario['imc']));
+                                                
+                                                if ($imc_valor < 18.5) {
+                                                    $imc_class .= ' imc-bajo';
+                                                } elseif ($imc_valor >= 18.5 && $imc_valor < 25) {
+                                                    $imc_class .= ' imc-normal';
+                                                } elseif ($imc_valor >= 25 && $imc_valor < 30) {
+                                                    $imc_class .= ' imc-sobrepeso';
+                                                } elseif ($imc_valor >= 30) {
+                                                    $imc_class .= ' imc-obeso';
+                                                }
+                                            }
+                                        ?>
+                                        <tr class="hover:bg-gray-50" 
+                                            data-municipio="<?php echo e($beneficiario['municipio'] ?? ''); ?>"
+                                            data-parroquia="<?php echo e($beneficiario['parroquia'] ?? ''); ?>"
+                                            data-sector="<?php echo e($beneficiario['sector'] ?? ''); ?>"
+                                            data-caso="<?php echo e($beneficiario['caso'] ?? ''); ?>"
+                                            data-id="<?php echo e($beneficiario['id_beneficiario'] ?? ''); ?>"
+                                            data-peso="<?php echo e(!empty($beneficiario['peso']) ? str_replace(',', '.', $beneficiario['peso']) : ''); ?>"
+                                            data-talla="<?php echo e(!empty($beneficiario['talla']) ? str_replace(',', '.', $beneficiario['talla']) : ''); ?>"
+                                            data-cbi="<?php echo e(!empty($beneficiario['cbi']) ? str_replace(',', '.', $beneficiario['cbi']) : ''); ?>"
+                                            data-imc="<?php echo e(!empty($beneficiario['imc']) ? str_replace(',', '.', $beneficiario['imc']) : ''); ?>"
+                                            data-nombre="<?php echo e($beneficiario['nombre_beneficiario'] ?? ''); ?>"
+                                            data-apellido="<?php echo e($beneficiario['apellido_beneficiario'] ?? ''); ?>"
+                                            data-cedula="<?php echo e($beneficiario['cedula_beneficiario'] ?? ''); ?>"
+                                            data-edad="<?php echo e($beneficiario['edad'] ?? ''); ?>"
+                                            data-genero="<?php echo e($beneficiario['genero'] ?? ''); ?>"
+                                            data-fecha-nacimiento="<?php echo e($beneficiario['fecha_nacimiento'] ?? ''); ?>"
+                                            data-condicion-femenina="<?php echo e($beneficiario['condicion_femenina'] ?? ''); ?>"
+                                            data-fecha-nacimiento-bebe="<?php echo e($beneficiario['fecha_nacimiento_bebe'] ?? ''); ?>"
+                                            data-semanas-gestacion="<?php echo e($beneficiario['semanas_gestacion'] ?? ''); ?>"
+                                            data-nombre-representante="<?php echo e($beneficiario['nombre_representante'] ?? ''); ?>"
+                                            data-apellido-representante="<?php echo e($beneficiario['apellido_representante'] ?? ''); ?>"
+                                            data-cedula-representante="<?php echo e($beneficiario['cedula_representante'] ?? ''); ?>"
+                                            data-telefono-representante="<?php echo e($beneficiario['telefono_representante'] ?? ''); ?>"
+                                            data-nombre-clap="<?php echo e($beneficiario['nombre_clap'] ?? ''); ?>"
+                                            data-nombre-comuna="<?php echo e($beneficiario['nombre_comuna'] ?? ''); ?>">
+                                            <td class="px-4 py-3">
+                                                <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['municipio'] ?? 'Sin municipio'); ?>">
+                                                    <?php echo e($beneficiario['municipio'] ?? 'Sin municipio'); ?>
                                                 </div>
-                                                <div class="ml-3 min-w-0">
-                                                    <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['nombre_beneficiario'] . ' ' . $beneficiario['apellido_beneficiario']); ?>">
-                                                        <?php echo e($beneficiario['nombre_beneficiario'] . ' ' . $beneficiario['apellido_beneficiario']); ?>
+                                                <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['parroquia'] ?? 'Sin parroquia'); ?>">
+                                                    <?php echo e($beneficiario['parroquia'] ?? 'Sin parroquia'); ?>
+                                                </div>
+                                                <div class="text-xs text-gray-400 texto-truncado" title="<?php echo e($beneficiario['sector'] ?? 'Sin sector'); ?>">
+                                                    <?php echo e($beneficiario['sector'] ?? 'Sin sector'); ?>
+                                                </div>
+                                            </td>
+                                            
+                                            <td class="px-4 py-3">
+                                                <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e($beneficiario['nombre_representante'] ?? ''); ?>">
+                                                    <?php echo e($beneficiario['nombre_representante'] ?? 'Sin representante'); ?>
+                                                </div>
+                                                <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['cedula_representante'] ?? ''); ?>">
+                                                    <?php echo e($beneficiario['cedula_representante'] ?? 'Sin cédula'); ?>
+                                                </div>
+                                            </td>
+                                            
+                                            <td class="px-4 py-3">
+                                                <div class="flex items-center">
+                                                    <div class="flex-shrink-0 h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                                        <i class="fas fa-child text-blue-600 text-xs"></i>
                                                     </div>
-                                                    <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['cedula_beneficiario']); ?>">
-                                                        <?php echo e($beneficiario['cedula_beneficiario']); ?>
+                                                    <div class="ml-3 min-w-0">
+                                                        <div class="text-sm font-medium text-gray-900 texto-truncado" title="<?php echo e(($beneficiario['nombre_beneficiario'] ?? '') . ' ' . ($beneficiario['apellido_beneficiario'] ?? '')); ?>">
+                                                            <?php echo e(($beneficiario['nombre_beneficiario'] ?? 'Sin nombre') . ' ' . ($beneficiario['apellido_beneficiario'] ?? '')); ?>
+                                                        </div>
+                                                        <div class="text-sm text-gray-500 texto-truncado" title="<?php echo e($beneficiario['cedula_beneficiario'] ?? ''); ?>">
+                                                            <?php echo e($beneficiario['cedula_beneficiario'] ?? 'Sin cédula'); ?>
+                                                        </div>
+                                                        <div class="text-xs text-gray-400">
+                                                            <?php echo e($beneficiario['edad'] ?? ''); ?> años
+                                                        </div>
                                                     </div>
-                                                    <div class="text-xs text-gray-400">
-                                                        <?php echo e($beneficiario['edad']); ?>
+                                                </div>
+                                            </td>
+                                            
+                                            <td class="px-4 py-3">
+                                                <div class="text-xs">
+                                                    <div class="flex justify-between">
+                                                        <span>Peso:</span> 
+                                                        <span class="font-medium numero-formateado"><?php echo e($beneficiario['peso'] ?? 'N/A'); ?> kg</span>
+                                                    </div>
+                                                    <div class="flex justify-between">
+                                                        <span>Talla:</span> 
+                                                        <span class="font-medium numero-formateado"><?php echo e($beneficiario['talla'] ?? 'N/A'); ?> cm</span>
+                                                    </div>
+                                                    <div class="flex justify-between">
+                                                        <span>CBI:</span> 
+                                                        <span class="font-medium numero-formateado"><?php echo e($beneficiario['cbi'] ?? 'N/A'); ?> mm</span>
+                                                    </div>
+                                                    <div class="flex justify-between">
+                                                        <span>IMC:</span> 
+                                                        <span class="font-medium <?php echo $imc_class; ?>"><?php echo e($beneficiario['imc'] ?? 'N/A'); ?></span>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        </td>
-                                        
-                                        <td class="px-4 py-3">
-                                            <div class="text-xs">
-                                                <div class="flex justify-between">
-                                                    <span>Peso:</span> 
-                                                    <span class="font-medium numero-formateado"><?php echo e($beneficiario['peso']); ?> kg</span>
-                                                </div>
-                                                <div class="flex justify-between">
-                                                    <span>Talla:</span> 
-                                                    <span class="font-medium numero-formateado"><?php echo e($beneficiario['talla']); ?> cm</span>
-                                                </div>
-                                                <div class="flex justify-between">
-                                                    <span>CBI:</span> 
-                                                    <span class="font-medium numero-formateado"><?php echo e($beneficiario['cbi']); ?> mm</span>
-                                                </div>
-                                                <div class="flex justify-between">
-                                                    <span>IMC:</span> 
-                                                    <span class="font-medium <?php echo $imc_class; ?>"><?php echo e($beneficiario['imc']); ?></span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        
-                                        <td class="px-4 py-3">
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo $beneficiario['caso'] === '1' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'; ?>">
-                                                Caso <?php echo e($beneficiario['caso']); ?>
-                                            </span>
-                                            <div class="text-xs text-gray-500 mt-1">
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                                    <?php echo e($beneficiario['estado']); ?>
+                                            </td>
+                                            
+                                            <td class="px-4 py-3">
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <?php echo ($beneficiario['caso'] ?? '') === '1' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'; ?>">
+                                                    Caso <?php echo e($beneficiario['caso'] ?? 'N/A'); ?>
                                                 </span>
-                                            </div>
-                                        </td>
-                                        
-                                        <td class="px-4 py-3 text-sm font-medium">
-                                            <div class="flex space-x-1 justify-center">
-                                                <button onclick="editarBeneficiario('<?php echo $beneficiario['id'] ?? $beneficiario['cedula_beneficiario']; ?>')" class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" title="Editar">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
-                                                <button class="text-orange-600 hover:text-orange-900 transition duration-150 p-1" title="Asignar beneficio">
-                                                    <i class="fas fa-gift"></i>
-                                                </button>
-                                                <button onclick="eliminarBeneficiario('<?php echo $beneficiario['cedula_beneficiario']; ?>', '<?php echo e($beneficiario['nombre_beneficiario']); ?>')" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                                                <div class="text-xs text-gray-500 mt-1">
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                                        <?php echo e($beneficiario['estado'] ?? 'Activo'); ?>
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            
+                                            <td class="px-4 py-3 text-sm font-medium">
+                                                <div class="flex space-x-1 justify-center">
+                                                    <button onclick="editarBeneficiario('<?php echo e($beneficiario['id_beneficiario']); ?>', this)" 
+                                                            class="btn-editar-beneficiario text-blue-600 hover:text-blue-900 transition duration-150 p-1" 
+                                                            title="Editar">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button class="text-orange-600 hover:text-orange-900 transition duration-150 p-1" title="Asignar beneficio">
+                                                        <i class="fas fa-gift"></i>
+                                                    </button>
+                                                    <button onclick="eliminarBeneficiario('<?php echo e($beneficiario['cedula_beneficiario']); ?>', '<?php echo e($beneficiario['nombre_beneficiario']); ?>')" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -690,11 +1354,8 @@ $totalNuevosIngresos = count($nuevosIngresos);
                             Registre aquí a personas que no están en la base de datos principal
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="abrirModal('offline')" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 flex items-center">
-                                <i class="fas fa-user-plus mr-2"></i>Registrar Nuevo Ingreso
-                            </button>
-                            <button onclick="incorporarTodo()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 flex items-center">
-                                <i class="fas fa-database mr-2"></i>Incorporar a Base Principal
+                            <button onclick="abrirModalNuevoIngreso()" class="btn-registrar-nuevo-ingreso">
+                                <i class="fas fa-user-plus btn-icon"></i>Registrar Nuevo Ingreso
                             </button>
                         </div>
                     </div>
@@ -709,8 +1370,8 @@ $totalNuevosIngresos = count($nuevosIngresos);
                         <div class="p-6">
                             <?php if(empty($nuevosIngresos)): ?>
                                 <div class="text-center py-12">
-                                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
-                                        <i class="fas fa-user-plus text-blue-600 text-2xl"></i>
+                                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-yellow-100 mb-4">
+                                        <i class="fas fa-user-plus text-yellow-600 text-2xl"></i>
                                     </div>
                                     <h4 class="text-lg font-medium text-gray-900 mb-2">No hay nuevos ingresos registrados</h4>
                                     <p class="text-gray-600 max-w-md mx-auto">
@@ -718,14 +1379,14 @@ $totalNuevosIngresos = count($nuevosIngresos);
                                         Estos registros se guardarán temporalmente hasta que sean incorporados al sistema principal.
                                     </p>
                                     <div class="mt-6">
-                                        <button onclick="abrirModal('offline')" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200">
-                                            <i class="fas fa-user-plus mr-2"></i>Registrar Primer Nuevo Ingreso
+                                        <button onclick="abrirModalNuevoIngreso()" class="btn-registrar-nuevo-ingreso">
+                                            <i class="fas fa-user-plus btn-icon"></i>Registrar Primer Nuevo Ingreso
                                         </button>
                                     </div>
                                 </div>
                             <?php else: ?>
                                 <div class="tabla-contenedor">
-                                    <table class="min-w-full divide-y divide-gray-200">
+                                    <table id="tabla-nuevos-ingresos" class="min-w-full divide-y divide-gray-200">
                                         <thead>
                                             <tr class="bg-gray-50">
                                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Registro</th>
@@ -737,9 +1398,9 @@ $totalNuevosIngresos = count($nuevosIngresos);
                                         </thead>
                                         <tbody class="divide-y divide-gray-200">
                                             <?php foreach($nuevosIngresos as $index => $registro): ?>
-                                            <tr class="hover:bg-gray-50">
+                                            <tr class="hover:bg-gray-50" data-index="<?php echo $index; ?>">
                                                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                                    <?php echo e($registro['fecha_creacion'] ?? date('d/m/Y H:i')); ?>
+                                                    <?php echo e(date('d/m/Y H:i', strtotime($registro['fecha_registro']))); ?>
                                                 </td>
                                                 <td class="px-4 py-3">
                                                     <div class="flex items-center">
@@ -748,17 +1409,21 @@ $totalNuevosIngresos = count($nuevosIngresos);
                                                         </div>
                                                         <div class="ml-3 min-w-0">
                                                             <div class="text-sm font-medium text-gray-900 texto-truncado">
-                                                                <?php echo e($registro['nombre_beneficiario'] ?? 'N/A'); ?>
+                                                                <?php echo e($registro['nombre_beneficiario'] . ' ' . $registro['apellido_beneficiario']); ?>
                                                             </div>
                                                             <div class="text-sm text-gray-500 texto-truncado">
-                                                                <?php echo e($registro['cedula_beneficiario'] ?? 'Sin cédula'); ?>
+                                                                <?php echo e($registro['cedula_beneficiario']); ?>
+                                                            </div>
+                                                            <div class="text-xs text-gray-400">
+                                                                <?php echo e($registro['edad']); ?> años
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </td>
                                                 <td class="px-4 py-3">
-                                                    <div class="text-sm text-gray-900 texto-truncado"><?php echo e($registro['sector'] ?? 'N/A'); ?></div>
-                                                    <div class="text-xs text-gray-500 texto-truncado"><?php echo e($registro['parroquia'] ?? 'N/A'); ?></div>
+                                                    <div class="text-sm text-gray-900 texto-truncado"><?php echo e($registro['sector']); ?></div>
+                                                    <div class="text-xs text-gray-500 texto-truncado"><?php echo e($registro['parroquia']); ?></div>
+                                                    <div class="text-xs text-gray-400 texto-truncado"><?php echo e($registro['municipio']); ?></div>
                                                 </td>
                                                 <td class="px-4 py-3 whitespace-nowrap">
                                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium status-offline">
@@ -767,13 +1432,13 @@ $totalNuevosIngresos = count($nuevosIngresos);
                                                 </td>
                                                 <td class="px-4 py-3 text-sm font-medium">
                                                     <div class="flex space-x-1 justify-center">
-                                                        <button onclick="incorporarRegistro(<?php echo $index; ?>)" class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" title="Incorporar a base principal">
+                                                        <button onclick="incorporarRegistro('<?php echo $registro['cedula_beneficiario']; ?>')" class="text-blue-600 hover:text-blue-900 transition duration-150 p-1" title="Incorporar a base principal">
                                                             <i class="fas fa-database"></i>
                                                         </button>
-                                                        <button onclick="editarRegistroNI(<?php echo $index; ?>)" class="text-green-600 hover:text-green-900 transition duration-150 p-1" title="Editar">
+                                                        <button onclick="editarRegistroNI('<?php echo $registro['cedula_beneficiario']; ?>')" class="text-green-600 hover:text-green-900 transition duration-150 p-1" title="Editar">
                                                             <i class="fas fa-edit"></i>
                                                         </button>
-                                                        <button onclick="eliminarRegistroNI(<?php echo $index; ?>)" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
+                                                        <button onclick="eliminarRegistroNI('<?php echo $registro['cedula_beneficiario']; ?>')" class="text-red-600 hover:text-red-900 transition duration-150 p-1" title="Eliminar">
                                                             <i class="fas fa-trash"></i>
                                                         </button>
                                                     </div>
@@ -791,7 +1456,7 @@ $totalNuevosIngresos = count($nuevosIngresos);
         </div>
     </div>
 
-    <!-- Modal para Nuevo Beneficiario -->
+    <!-- Modal para Nuevo Beneficiario (Online) -->
     <div id="nuevoBeneficiarioModal" class="modal-backup">
         <div class="modal-content-backup">
             <div class="bg-green-600 text-white p-4 rounded-t-xl flex justify-between items-center">
@@ -807,11 +1472,12 @@ $totalNuevosIngresos = count($nuevosIngresos);
                 <input type="hidden" id="parroquias_data" value='<?php echo e($parroquias_json); ?>'>
                 <input type="hidden" id="sectores_data" value='<?php echo e($sectores_json); ?>'>
                 
+                <!-- Ubicación -->
                 <div class="mb-6">
                     <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Ubicación y CLAP</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label for="municipio" class="block text-sm font-medium text-gray-700 mb-2">Municipio *</label>
+                            <label for="municipio" class="block text-sm font-medium text-gray-700 mb-2 required">Municipio</label>
                             <select id="municipio" name="municipio" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                                 <option value="">Seleccionar municipio</option>
                                 <?php foreach($municipios as $municipio): ?>
@@ -820,13 +1486,13 @@ $totalNuevosIngresos = count($nuevosIngresos);
                             </select>
                         </div>
                         <div>
-                            <label for="parroquia" class="block text-sm font-medium text-gray-700 mb-2">Parroquia *</label>
+                            <label for="parroquia" class="block text-sm font-medium text-gray-700 mb-2 required">Parroquia</label>
                             <select id="parroquia" name="parroquia" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" disabled>
                                 <option value="">Primero seleccione municipio</option>
                             </select>
                         </div>
                         <div>
-                            <label for="sector" class="block text-sm font-medium text-gray-700 mb-2">Sector donde vive *</label>
+                            <label for="sector" class="block text-sm font-medium text-gray-700 mb-2 required">Sector donde vive</label>
                             <select id="sector" name="sector" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" disabled>
                                 <option value="">Primero seleccione parroquia</option>
                             </select>
@@ -844,184 +1510,150 @@ $totalNuevosIngresos = count($nuevosIngresos);
                     </div>
                 </div>
                 
+                <!-- Datos del Representante -->
                 <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Representante</h4>
+                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Datos del Representante</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label for="nombre_representante" class="block text-sm font-medium text-gray-700 mb-2">Nombre Representante *</label>
-                            <input type="text" id="nombre_representante" name="nombre_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Carlos">
+                            <label for="representante_nombre" class="block text-sm font-medium text-gray-700 mb-2 required">Nombre</label>
+                            <input type="text" id="representante_nombre" name="representante_nombre" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: María">
                         </div>
                         <div>
-                            <label for="apellido_representante" class="block text-sm font-medium text-gray-700 mb-2">Apellido Representante *</label>
-                            <input type="text" id="apellido_representante" name="apellido_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Pérez">
+                            <label for="representante_apellido" class="block text-sm font-medium text-gray-700 mb-2 required">Apellido</label>
+                            <input type="text" id="representante_apellido" name="representante_apellido" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: González">
                         </div>
                         <div>
-                            <label for="cedula_representante" class="block text-sm font-medium text-gray-700 mb-2">Cédula Representante *</label>
-                            <input type="text" id="cedula_representante" name="cedula_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-12345678">
+                            <label for="representante_cedula" class="block text-sm font-medium text-gray-700 mb-2 required">Cédula de Identidad</label>
+                            <input type="text" id="representante_cedula" name="representante_cedula" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-12345678">
                         </div>
                     </div>
                     <div class="mt-4">
-                        <label for="numero_contacto" class="block text-sm font-medium text-gray-700 mb-2">Número de Contacto *</label>
-                        <input type="tel" id="numero_contacto" name="numero_contacto" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 0412-1234567">
+                        <div class="w-full md:w-1/2">
+                            <label for="representante_telefono" class="block text-sm font-medium text-gray-700 mb-2 required">Teléfono de Contacto</label>
+                            <input type="tel" id="representante_telefono" name="representante_telefono" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 0412-1234567">
+                        </div>
                     </div>
                 </div>
                 
+                <!-- Datos del Beneficiario -->
                 <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Beneficiario (Estudiante)</h4>
+                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Datos del Beneficiario</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label for="nombre_beneficiario" class="block text-sm font-medium text-gray-700 mb-2">Nombre Beneficiario *</label>
-                            <input type="text" id="nombre_beneficiario" name="nombre_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: María">
+                            <label for="nombres" class="block text-sm font-medium text-gray-700 mb-2 required">Nombre</label>
+                            <input type="text" id="nombres" name="nombres" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Carlos">
                         </div>
                         <div>
-                            <label for="apellido_beneficiario" class="block text-sm font-medium text-gray-700 mb-2">Apellido Beneficiario *</label>
-                            <input type="text" id="apellido_beneficiario" name="apellido_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: González">
+                            <label for="apellidos" class="block text-sm font-medium text-gray-700 mb-2 required">Apellido</label>
+                            <input type="text" id="apellidos" name="apellidos" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Rodríguez">
                         </div>
                         <div>
-                            <label for="genero" class="block text-sm font-medium text-gray-700 mb-2">Género M/F *</label>
-                            <select id="genero" name="genero" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar género</option>
-                                <option value="MASCULINO">MASCULINO (M)</option>
-                                <option value="FEMENINO">FEMENINO (F)</option>
-                            </select>
+                            <label for="cedula_beneficiario" class="block text-sm font-medium text-gray-700 mb-2 required">Cédula de Identidad</label>
+                            <input type="text" id="cedula_beneficiario" name="cedula_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-87654321">
                         </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                         <div>
-                            <label for="cedula_beneficiario" class="block text-sm font-medium text-gray-700 mb-2">Cédula Beneficiario (si la tiene)</label>
-                            <input type="text" id="cedula_beneficiario" name="cedula_beneficiario" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-87654321">
-                        </div>
-                        <div>
-                            <label for="fecha_nacimiento" class="block text-sm font-medium text-gray-700 mb-2">Fecha de Nacimiento *</label>
+                            <label for="fecha_nacimiento" class="block text-sm font-medium text-gray-700 mb-2 required">Fecha de Nacimiento</label>
                             <input type="date" id="fecha_nacimiento" name="fecha_nacimiento" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Edad</label>
-                            <div class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-                                <span id="edad_display" class="text-gray-700">-- años</span>
-                                <input type="hidden" id="edad" name="edad">
-                            </div>
+                            <label for="genero" class="block text-sm font-medium text-gray-700 mb-2 required">Género</label>
+                            <select id="genero" name="genero" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" onchange="mostrarCondicionFemeninaNuevo()">
+                                <option value="">Seleccionar</option>
+                                <option value="M">Masculino</option>
+                                <option value="F">Femenino</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="edad" class="block text-sm font-medium text-gray-700 mb-2">Edad</label>
+                            <input type="number" id="edad" name="edad" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Se calculará automáticamente">
                         </div>
                     </div>
                     
-                    <!-- Sección específica para mujeres -->
-                    <div id="seccion-mujer" class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200" style="display: none;">
-                        <h5 class="text-md font-medium text-gray-800 mb-3">Información Específica para Mujeres</h5>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Condición Especial *</label>
-                                <div class="space-y-2">
-                                    <label class="inline-flex items-center">
-                                        <input type="radio" name="condicion_mujer" value="ninguna" checked class="form-radio text-green-600">
-                                        <span class="ml-2 text-sm text-gray-700">Ninguna</span>
-                                    </label>
-                                    <label class="inline-flex items-center ml-6">
-                                        <input type="radio" name="condicion_mujer" value="gestante" class="form-radio text-green-600">
-                                        <span class="ml-2 text-sm text-gray-700">Gestante</span>
-                                    </label>
-                                    <label class="inline-flex items-center ml-6">
-                                        <input type="radio" name="condicion_mujer" value="lactante" class="form-radio text-green-600">
-                                        <span class="ml-2 text-sm text-gray-700">Lactante</span>
-                                    </label>
-                                </div>
+                    <!-- Condición femenina (solo si es Femenino) -->
+                    <div id="condicion_femenina_nuevo" class="condicional-genero">
+                        <div class="condicional-title">
+                            <i class="fas fa-female"></i>
+                            Condición Especial (Femenino)
+                        </div>
+                        <div class="condicion-femenina-group">
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="condicion_nada_nuevo" name="condicion_femenina" value="nada" checked onchange="mostrarSubcondicionNuevo()">
+                                <label for="condicion_nada_nuevo">Ninguna condición especial</label>
                             </div>
-                            
-                            <!-- Campos para gestantes -->
-                            <div id="campos-gestante" class="space-y-3 p-3 bg-yellow-50 rounded border border-yellow-200" style="display: none;">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label for="semanas_gestacion" class="block text-sm font-medium text-gray-700 mb-2">Semanas de Gestación *</label>
-                                        <input type="number" id="semanas_gestacion" name="semanas_gestacion" min="1" max="42" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 28">
-                                        <p class="text-xs text-gray-500 mt-1">Ingrese número de semanas (1-42)</p>
-                                    </div>
-                                    <div>
-                                        <label for="fecha_probable_parto" class="block text-sm font-medium text-gray-700 mb-2">Fecha Probable de Parto</label>
-                                        <input type="date" id="fecha_probable_parto" name="fecha_probable_parto" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                        <p class="text-xs text-gray-500 mt-1">Se calculará automáticamente</p>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label for="observaciones_gestacion" class="block text-sm font-medium text-gray-700 mb-2">Observaciones</label>
-                                    <textarea id="observaciones_gestacion" name="observaciones_gestacion" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Observaciones relevantes sobre la gestación"></textarea>
-                                </div>
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="condicion_lactante_nuevo" name="condicion_femenina" value="lactante" onchange="mostrarSubcondicionNuevo()">
+                                <label for="condicion_lactante_nuevo">Lactante</label>
                             </div>
-                            
-                            <!-- Campos para lactantes -->
-                            <div id="campos-lactante" class="space-y-3 p-3 bg-purple-50 rounded border border-purple-200" style="display: none;">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label for="fecha_nacimiento_nino" class="block text-sm font-medium text-gray-700 mb-2">Fecha de Nacimiento del Niño *</label>
-                                        <input type="date" id="fecha_nacimiento_nino" name="fecha_nacimiento_nino" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Edad del Niño</label>
-                                        <div class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-                                            <span id="edad_nino_display" class="text-gray-700">--</span>
-                                            <input type="hidden" id="edad_nino" name="edad_nino">
-                                        </div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Lactancia</label>
-                                    <div class="space-y-1">
-                                        <label class="inline-flex items-center">
-                                            <input type="radio" name="tipo_lactancia" value="exclusiva" class="form-radio text-green-600">
-                                            <span class="ml-2 text-sm text-gray-700">Lactancia Materna Exclusiva</span>
-                                        </label>
-                                        <label class="inline-flex items-center">
-                                            <input type="radio" name="tipo_lactancia" value="mixta" class="form-radio text-green-600">
-                                            <span class="ml-2 text-sm text-gray-700">Lactancia Mixta</span>
-                                        </label>
-                                        <label class="inline-flex items-center">
-                                            <input type="radio" name="tipo_lactancia" value="complementaria" class="form-radio text-green-600">
-                                            <span class="ml-2 text-sm text-gray-700">Lactancia Complementaria</span>
-                                        </label>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label for="observaciones_lactancia" class="block text-sm font-medium text-gray-700 mb-2">Observaciones</label>
-                                    <textarea id="observaciones_lactancia" name="observaciones_lactancia" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Observaciones relevantes sobre la lactancia"></textarea>
-                                </div>
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="condicion_gestante_nuevo" name="condicion_femenina" value="gestante" onchange="mostrarSubcondicionNuevo()">
+                                <label for="condicion_gestante_nuevo">Gestante</label>
+                            </div>
+                        </div>
+                        
+                        <!-- Subcondición para lactante -->
+                        <div id="subcondicion_lactante_nuevo" class="condicion-subseccion">
+                            <div class="form-group">
+                                <label for="fecha_nacimiento_bebe_nuevo" class="required-label">Fecha de nacimiento del bebé</label>
+                                <input type="date" id="fecha_nacimiento_bebe_nuevo" name="fecha_nacimiento_bebe" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            </div>
+                            <div class="text-xs text-amber-600 mt-1">
+                                <i class="fas fa-info-circle"></i> Se registrará la fecha de nacimiento del bebé para seguimiento.
+                            </div>
+                        </div>
+                        
+                        <!-- Subcondición para gestante -->
+                        <div id="subcondicion_gestante_nuevo" class="condicion-subseccion">
+                            <div class="form-group">
+                                <label for="semanas_gestacion_nuevo" class="required-label">Semanas de gestación</label>
+                                <input type="number" id="semanas_gestacion_nuevo" name="semanas_gestacion" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" min="1" max="42" placeholder="Ej: 24">
+                            </div>
+                            <div class="text-xs text-amber-600 mt-1">
+                                <i class="fas fa-info-circle"></i> Indique las semanas completas de gestación.
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información Antropométrica</h4>
+                <!-- Antropometría -->
+                <div class="mb-6 bg-blue-50 p-4 rounded-lg">
+                    <h4 class="text-lg font-medium text-blue-800 mb-4 border-b pb-2">Antropometría</h4>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
-                            <label for="cbi_mm" class="block text-sm font-medium text-gray-700 mb-2">CBI (mm)</label>
-                            <input type="number" id="cbi_mm" name="cbi_mm" step="0.1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 142,0">
+                            <label for="cbi_mm" class="block text-sm font-medium text-blue-700 mb-2 required">CBI (mm)</label>
+                            <input type="number" id="cbi_mm" name="cbi_mm" step="0.1" required class="w-full border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 12.5">
                         </div>
                         <div>
-                            <label for="peso_kg" class="block text-sm font-medium text-gray-700 mb-2">Peso (Kg) *</label>
-                            <input type="number" id="peso_kg" name="peso_kg" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 28,5">
+                            <label for="peso_kg" class="block text-sm font-medium text-blue-700 mb-2 required">Peso (Kg)</label>
+                            <input type="number" id="peso_kg" name="peso_kg" step="0.1" required class="w-full border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 25.5">
                         </div>
                         <div>
-                            <label for="talla_cm" class="block text-sm font-medium text-gray-700 mb-2">Talla (cm) *</label>
-                            <input type="number" id="talla_cm" name="talla_cm" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 125,0">
+                            <label for="talla_cm" class="block text-sm font-medium text-blue-700 mb-2 required">Talla (cm)</label>
+                            <input type="number" id="talla_cm" name="talla_cm" step="0.1" required class="w-full border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 120.0">
                         </div>
                         <div>
-                            <label for="cci" class="block text-sm font-medium text-gray-700 mb-2">Cci</label>
-                            <input type="text" id="cci" name="cci" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Calculado automáticamente">
+                            <label for="imc" class="block text-sm font-medium text-blue-700 mb-2">IMC (Calculado)</label>
+                            <input type="text" id="imc" name="imc" readonly class="w-full border border-blue-300 bg-blue-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Se calculará automáticamente">
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">IMC</label>
-                            <div class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-                                <span id="imc_display" class="text-gray-700">--</span>
-                                <input type="hidden" id="imc" name="imc">
-                            </div>
+                </div>
+                
+                <!-- Situación -->
+                <div class="mb-6 bg-green-50 p-4 rounded-lg">
+                    <h4 class="text-lg font-medium text-green-800 mb-4 border-b pb-2">Situación</h4>
+                    <div class="space-y-3">
+                        <div class="flex items-center">
+                            <input type="radio" id="caso_1" name="situacion_dx" value="1" required class="h-4 w-4 text-green-600 focus:ring-green-500">
+                            <label for="caso_1" class="ml-3 block text-sm font-medium text-green-700">
+                                Caso 1
+                            </label>
                         </div>
-                        <div>
-                            <label for="situacion_dx" class="block text-sm font-medium text-gray-700 mb-2">Situación DX *</label>
-                            <select id="situacion_dx" name="situacion_dx" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar situación</option>
-                                <option value="1">Caso 1</option>
-                                <option value="2">Caso 2</option>
-                            </select>
+                        <div class="flex items-center">
+                            <input type="radio" id="caso_2" name="situacion_dx" value="2" required class="h-4 w-4 text-green-600 focus:ring-green-500">
+                            <label for="caso_2" class="ml-3 block text-sm font-medium text-green-700">
+                                Caso 2
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -1032,6 +1664,246 @@ $totalNuevosIngresos = count($nuevosIngresos);
                     </button>
                     <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition duration-200">
                         <i class="fas fa-save mr-2"></i><span id="btn-guardar-texto">Guardar Beneficiario</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Nuevo Ingreso (Offline) -->
+    <div id="nuevoIngresoModal" class="modal-backup modal-nuevo-ingreso">
+        <div class="modal-content-backup">
+            <!-- Header del Modal -->
+            <div class="modal-header-nuevo-ingreso">
+                <h3>
+                    <i class="fas fa-user-plus"></i>
+                    Registrar Nuevo Ingreso
+                </h3>
+                <button onclick="cerrarModalNuevoIngreso()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <!-- Formulario -->
+            <form id="formNuevoIngreso" method="POST" class="p-0">
+                <input type="hidden" name="action" value="create_nuevo_ingreso">
+                <input type="hidden" name="tipo" value="offline">
+                
+                <!-- Ubicación -->
+                <div class="form-section">
+                    <h4 class="form-section-title">
+                        <i class="fas fa-map-marker-alt"></i>
+                        Ubicación
+                    </h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 grid-responsive">
+                        <div class="form-group">
+                            <label for="ni_municipio" class="required-label">Municipio</label>
+                            <select id="ni_municipio" name="municipio" required class="form-control" onchange="cargarParroquiasNuevoIngreso()">
+                                <option value="">Seleccionar municipio</option>
+                                <?php foreach($municipios as $municipio): ?>
+                                    <option value="<?php echo e($municipio); ?>"><?php echo e($municipio); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_parroquia" class="required-label">Parroquia</label>
+                            <select id="ni_parroquia" name="parroquia" required class="form-control" disabled onchange="cargarSectoresNuevoIngreso()">
+                                <option value="">Primero seleccione municipio</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_sector" class="required-label">Sector</label>
+                            <select id="ni_sector" name="sector" required class="form-control" disabled>
+                                <option value="">Primero seleccione parroquia</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div class="form-group">
+                            <label for="ni_clap">Nombre CLAP</label>
+                            <input type="text" id="ni_clap" name="nombre_clap" class="form-control" placeholder="Ej: CLAP Libertador">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_comuna">Nombre de la Comuna</label>
+                            <input type="text" id="ni_comuna" name="nombre_comuna" class="form-control" placeholder="Ej: Comuna 1">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Datos del Representante -->
+                <div class="form-section">
+                    <h4 class="form-section-title">
+                        <i class="fas fa-user-tie"></i>
+                        Datos del Representante
+                    </h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 grid-responsive">
+                        <div class="form-group">
+                            <label for="ni_representante_nombre" class="required-label">Nombre</label>
+                            <input type="text" id="ni_representante_nombre" name="representante_nombre" required class="form-control" placeholder="Ej: María">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_representante_apellido" class="required-label">Apellido</label>
+                            <input type="text" id="ni_representante_apellido" name="representante_apellido" required class="form-control" placeholder="Ej: González">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_representante_cedula" class="required-label">Cédula de Identidad</label>
+                            <input type="text" id="ni_representante_cedula" name="representante_cedula" required class="form-control" placeholder="Ej: V-12345678">
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="form-group">
+                            <label for="ni_representante_telefono" class="required-label">Teléfono de Contacto</label>
+                            <input type="tel" id="ni_representante_telefono" name="representante_telefono" required class="form-control" placeholder="Ej: 0412-1234567">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Datos del Beneficiario -->
+                <div class="form-section">
+                    <h4 class="form-section-title">
+                        <i class="fas fa-child"></i>
+                        Datos del Beneficiario
+                    </h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 grid-responsive">
+                        <div class="form-group">
+                            <label for="ni_nombres" class="required-label">Nombre</label>
+                            <input type="text" id="ni_nombres" name="nombres" required class="form-control" placeholder="Ej: Carlos">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_apellidos" class="required-label">Apellido</label>
+                            <input type="text" id="ni_apellidos" name="apellidos" required class="form-control" placeholder="Ej: Rodríguez">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_cedula_beneficiario" class="required-label">Cédula de Identidad</label>
+                            <input type="text" id="ni_cedula_beneficiario" name="cedula_beneficiario" required class="form-control" placeholder="Ej: V-87654321">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 grid-responsive">
+                        <div class="form-group">
+                            <label for="ni_fecha_nacimiento" class="required-label">Fecha de Nacimiento</label>
+                            <input type="date" id="ni_fecha_nacimiento" name="fecha_nacimiento" required class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_genero" class="required-label">Género</label>
+                            <select id="ni_genero" name="genero" required class="form-control" onchange="mostrarCondicionFemeninaNI()">
+                                <option value="">Seleccionar</option>
+                                <option value="M">Masculino</option>
+                                <option value="F">Femenino</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_edad">Edad (Calculada)</label>
+                            <input type="text" id="ni_edad" name="edad" readonly class="form-control" placeholder="Se calculará automáticamente">
+                        </div>
+                    </div>
+                    
+                    <!-- Condición femenina (solo si es Femenino) -->
+                    <div id="ni_condicion_femenina" class="condicional-genero">
+                        <div class="condicional-title">
+                            <i class="fas fa-female"></i>
+                            Condición Especial (Femenino)
+                        </div>
+                        <div class="condicion-femenina-group">
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="ni_condicion_nada" name="condicion_femenina" value="nada" checked onchange="mostrarSubcondicionNI()">
+                                <label for="ni_condicion_nada">Ninguna condición especial</label>
+                            </div>
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="ni_condicion_lactante" name="condicion_femenina" value="lactante" onchange="mostrarSubcondicionNI()">
+                                <label for="ni_condicion_lactante">Lactante</label>
+                            </div>
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="ni_condicion_gestante" name="condicion_femenina" value="gestante" onchange="mostrarSubcondicionNI()">
+                                <label for="ni_condicion_gestante">Gestante</label>
+                            </div>
+                        </div>
+                        
+                        <!-- Subcondición para lactante -->
+                        <div id="ni_subcondicion_lactante" class="condicion-subseccion">
+                            <div class="form-group">
+                                <label for="ni_fecha_nacimiento_bebe" class="required-label">Fecha de nacimiento del bebé</label>
+                                <input type="date" id="ni_fecha_nacimiento_bebe" name="fecha_nacimiento_bebe" class="form-control">
+                            </div>
+                            <div class="text-xs text-amber-600 mt-1">
+                                <i class="fas fa-info-circle"></i> Se registrará la fecha de nacimiento del bebé para seguimiento.
+                            </div>
+                        </div>
+                        
+                        <!-- Subcondición para gestante -->
+                        <div id="ni_subcondicion_gestante" class="condicion-subseccion">
+                            <div class="form-group">
+                                <label for="ni_semanas_gestacion" class="required-label">Semanas de gestación</label>
+                                <input type="number" id="ni_semanas_gestacion" name="semanas_gestacion" class="form-control" min="1" max="42" placeholder="Ej: 24">
+                            </div>
+                            <div class="text-xs text-amber-600 mt-1">
+                                <i class="fas fa-info-circle"></i> Indique las semanas completas de gestación.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Antropometría -->
+                <div class="form-section antropometria-section">
+                    <div class="antropometria-title">
+                        <i class="fas fa-ruler-combined mr-2"></i>Antropometría
+                    </div>
+                    <div class="antropometria-subtitle">
+                        Complete las medidas antropométricas del beneficiario
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 grid-responsive">
+                        <div class="form-group">
+                            <label for="ni_cbi_mm" class="required-label">CBI (mm)</label>
+                            <input type="number" id="ni_cbi_mm" name="cbi_mm" step="0.1" required 
+                                   class="form-control antropometria-input" placeholder="Ej: 12.5">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_peso_kg" class="required-label">Peso (Kg)</label>
+                            <input type="number" id="ni_peso_kg" name="peso_kg" step="0.1" required 
+                                   class="form-control antropometria-input" placeholder="Ej: 25.5">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_talla_cm" class="required-label">Talla (cm)</label>
+                            <input type="number" id="ni_talla_cm" name="talla_cm" step="0.1" required 
+                                   class="form-control antropometria-input" placeholder="Ej: 120.0">
+                        </div>
+                        <div class="form-group">
+                            <label for="ni_imc">IMC (Calculado)</label>
+                            <input type="text" id="ni_imc" name="imc" readonly 
+                                   class="form-control imc-calculado" placeholder="Se calculará automáticamente">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Situación -->
+                <div class="form-section situacion-section">
+                    <div class="situacion-title">
+                        <i class="fas fa-clipboard-check mr-2"></i>Situación
+                    </div>
+                    
+                    <div class="space-y-3">
+                        <div class="flex items-center">
+                            <input type="radio" id="ni_caso_1" name="situacion_dx" value="1" required class="h-4 w-4 text-green-600 focus:ring-green-500">
+                            <label for="ni_caso_1" class="ml-3 block text-sm font-medium text-green-700">
+                                Caso 1
+                            </label>
+                        </div>
+                        <div class="flex items-center">
+                            <input type="radio" id="ni_caso_2" name="situacion_dx" value="2" required class="h-4 w-4 text-green-600 focus:ring-green-500">
+                            <label for="ni_caso_2" class="ml-3 block text-sm font-medium text-green-700">
+                                Caso 2
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Footer del Modal -->
+                <div class="modal-footer">
+                    <button type="button" onclick="cerrarModalNuevoIngreso()" class="btn-cancelar">
+                        <i class="fas fa-times mr-2"></i>Cancelar
+                    </button>
+                    <button type="submit" class="btn-guardar-nuevo-ingreso">
+                        <i class="fas fa-save"></i>Guardar Nuevo Ingreso
                     </button>
                 </div>
             </form>
@@ -1054,12 +1926,13 @@ $totalNuevosIngresos = count($nuevosIngresos);
                 <input type="hidden" id="parroquias_data_editar" value='<?php echo e($parroquias_json); ?>'>
                 <input type="hidden" id="sectores_data_editar" value='<?php echo e($sectores_json); ?>'>
                 
+                <!-- Ubicación -->
                 <div class="mb-6">
                     <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Ubicación y CLAP</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label for="municipio_editar" class="block text-sm font-medium text-gray-700 mb-2">Municipio *</label>
-                            <select id="municipio_editar" name="municipio" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            <label for="editar_municipio" class="block text-sm font-medium text-gray-700 mb-2 required">Municipio</label>
+                            <select id="editar_municipio" name="municipio" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 <option value="">Seleccionar municipio</option>
                                 <?php foreach($municipios as $municipio): ?>
                                     <option value="<?php echo e($municipio); ?>"><?php echo e($municipio); ?></option>
@@ -1067,208 +1940,174 @@ $totalNuevosIngresos = count($nuevosIngresos);
                             </select>
                         </div>
                         <div>
-                            <label for="parroquia_editar" class="block text-sm font-medium text-gray-700 mb-2">Parroquia *</label>
-                            <select id="parroquia_editar" name="parroquia" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" disabled>
+                            <label for="editar_parroquia" class="block text-sm font-medium text-gray-700 mb-2 required">Parroquia</label>
+                            <select id="editar_parroquia" name="parroquia" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" disabled>
                                 <option value="">Primero seleccione municipio</option>
                             </select>
                         </div>
                         <div>
-                            <label for="sector_editar" class="block text-sm font-medium text-gray-700 mb-2">Sector donde vive *</label>
-                            <select id="sector_editar" name="sector" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" disabled>
+                            <label for="editar_sector" class="block text-sm font-medium text-gray-700 mb-2 required">Sector donde vive</label>
+                            <select id="editar_sector" name="sector" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" disabled>
                                 <option value="">Primero seleccione parroquia</option>
                             </select>
                         </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div>
-                            <label for="nombre_clap_editar" class="block text-sm font-medium text-gray-700 mb-2">Nombre CLAP</label>
-                            <input type="text" id="nombre_clap_editar" name="nombre_clap" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: CLAP Libertador">
+                            <label for="editar_nombre_clap" class="block text-sm font-medium text-gray-700 mb-2">Nombre CLAP</label>
+                            <input type="text" id="editar_nombre_clap" name="nombre_clap" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: CLAP Libertador">
                         </div>
                         <div>
-                            <label for="nombre_comuna_editar" class="block text-sm font-medium text-gray-700 mb-2">Nombre de la Comuna</label>
-                            <input type="text" id="nombre_comuna_editar" name="nombre_comuna" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Comuna 1">
+                            <label for="editar_nombre_comuna" class="block text-sm font-medium text-gray-700 mb-2">Nombre de la Comuna</label>
+                            <input type="text" id="editar_nombre_comuna" name="nombre_comuna" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: Comuna 1">
                         </div>
                     </div>
                 </div>
                 
+                <!-- Datos del Representante -->
                 <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Representante</h4>
+                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Datos del Representante</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label for="nombre_representante_editar" class="block text-sm font-medium text-gray-700 mb-2">Nombre Representante *</label>
-                            <input type="text" id="nombre_representante_editar" name="nombre_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Carlos">
+                            <label for="editar_representante_nombre" class="block text-sm font-medium text-gray-700 mb-2 required">Nombre</label>
+                            <input type="text" id="editar_representante_nombre" name="representante_nombre" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: María">
                         </div>
                         <div>
-                            <label for="apellido_representante_editar" class="block text-sm font-medium text-gray-700 mb-2">Apellido Representante *</label>
-                            <input type="text" id="apellido_representante_editar" name="apellido_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: Pérez">
+                            <label for="editar_representante_apellido" class="block text-sm font-medium text-gray-700 mb-2 required">Apellido</label>
+                            <input type="text" id="editar_representante_apellido" name="representante_apellido" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: González">
                         </div>
                         <div>
-                            <label for="cedula_representante_editar" class="block text-sm font-medium text-gray-700 mb-2">Cédula Representante *</label>
-                            <input type="text" id="cedula_representante_editar" name="cedula_representante" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-12345678">
+                            <label for="editar_representante_cedula" class="block text-sm font-medium text-gray-700 mb-2 required">Cédula de Identidad</label>
+                            <input type="text" id="editar_representante_cedula" name="representante_cedula" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: V-12345678">
                         </div>
                     </div>
                     <div class="mt-4">
-                        <label for="numero_contacto_editar" class="block text-sm font-medium text-gray-700 mb-2">Número de Contacto *</label>
-                        <input type="tel" id="numero_contacto_editar" name="numero_contacto" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 0412-1234567">
+                        <div class="w-full md:w-1/2">
+                            <label for="editar_representante_telefono" class="block text-sm font-medium text-gray-700 mb-2 required">Teléfono de Contacto</label>
+                            <input type="tel" id="editar_representante_telefono" name="representante_telefono" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 0412-1234567">
+                        </div>
                     </div>
                 </div>
                 
+                <!-- Datos del Beneficiario -->
                 <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información del Beneficiario (Estudiante)</h4>
+                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Datos del Beneficiario</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label for="nombre_beneficiario_editar" class="block text-sm font-medium text-gray-700 mb-2">Nombre Beneficiario *</label>
-                            <input type="text" id="nombre_beneficiario_editar" name="nombre_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: María">
+                            <label for="editar_nombres" class="block text-sm font-medium text-gray-700 mb-2 required">Nombre</label>
+                            <input type="text" id="editar_nombres" name="nombres" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: Carlos">
                         </div>
                         <div>
-                            <label for="apellido_beneficiario_editar" class="block text-sm font-medium text-gray-700 mb-2">Apellido Beneficiario *</label>
-                            <input type="text" id="apellido_beneficiario_editar" name="apellido_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: González">
+                            <label for="editar_apellidos" class="block text-sm font-medium text-gray-700 mb-2 required">Apellido</label>
+                            <input type="text" id="editar_apellidos" name="apellidos" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: Rodríguez">
                         </div>
                         <div>
-                            <label for="genero_editar" class="block text-sm font-medium text-gray-700 mb-2">Género M/F *</label>
-                            <select id="genero_editar" name="genero" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar género</option>
-                                <option value="MASCULINO">MASCULINO (M)</option>
-                                <option value="FEMENINO">FEMENINO (F)</option>
-                            </select>
+                            <label for="editar_cedula_beneficiario" class="block text-sm font-medium text-gray-700 mb-2 required">Cédula de Identidad</label>
+                            <input type="text" id="editar_cedula_beneficiario" name="cedula_beneficiario" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: V-87654321">
                         </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                         <div>
-                            <label for="cedula_beneficiario_editar" class="block text-sm font-medium text-gray-700 mb-2">Cédula Beneficiario (si la tiene)</label>
-                            <input type="text" id="cedula_beneficiario_editar" name="cedula_beneficiario" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: V-87654321">
+                            <label for="editar_fecha_nacimiento" class="block text-sm font-medium text-gray-700 mb-2 required">Fecha de Nacimiento</label>
+                            <input type="date" id="editar_fecha_nacimiento" name="fecha_nacimiento" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label for="fecha_nacimiento_editar" class="block text-sm font-medium text-gray-700 mb-2">Fecha de Nacimiento *</label>
-                            <input type="date" id="fecha_nacimiento_editar" name="fecha_nacimiento" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            <label for="editar_genero" class="block text-sm font-medium text-gray-700 mb-2 required">Género</label>
+                            <select id="editar_genero" name="genero" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="mostrarCondicionFemeninaEditar()">
+                                <option value="">Seleccionar</option>
+                                <option value="M">Masculino</option>
+                                <option value="F">Femenino</option>
+                            </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Edad</label>
-                            <div class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-                                <span id="edad_display_editar" class="text-gray-700">-- años</span>
-                                <input type="hidden" id="edad_editar" name="edad">
-                            </div>
+                            <label for="editar_edad" class="block text-sm font-medium text-gray-700 mb-2">Edad</label>
+                            <input type="number" id="editar_edad" name="edad" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Se calculará automáticamente">
                         </div>
                     </div>
                     
-                    <!-- Sección específica para mujeres (editar) -->
-                    <div id="seccion-mujer_editar" class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200" style="display: none;">
-                        <h5 class="text-md font-medium text-gray-800 mb-3">Información Específica para Mujeres</h5>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Condición Especial *</label>
-                                <div class="space-y-2">
-                                    <label class="inline-flex items-center">
-                                        <input type="radio" name="condicion_mujer_editar" value="ninguna" class="form-radio text-green-600">
-                                        <span class="ml-2 text-sm text-gray-700">Ninguna</span>
-                                    </label>
-                                    <label class="inline-flex items-center ml-6">
-                                        <input type="radio" name="condicion_mujer_editar" value="gestante" class="form-radio text-green-600">
-                                        <span class="ml-2 text-sm text-gray-700">Gestante</span>
-                                    </label>
-                                    <label class="inline-flex items-center ml-6">
-                                        <input type="radio" name="condicion_mujer_editar" value="lactante" class="form-radio text-green-600">
-                                        <span class="ml-2 text-sm text-gray-700">Lactante</span>
-                                    </label>
-                                </div>
+                    <!-- Condición femenina (solo si es Femenino) -->
+                    <div id="editar_condicion_femenina" class="condicional-genero">
+                        <div class="condicional-title">
+                            <i class="fas fa-female"></i>
+                            Condición Especial (Femenino)
+                        </div>
+                        <div class="condicion-femenina-group">
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="editar_condicion_nada" name="condicion_femenina" value="nada" checked onchange="mostrarSubcondicionEditar()">
+                                <label for="editar_condicion_nada">Ninguna condición especial</label>
                             </div>
-                            
-                            <!-- Campos para gestantes (editar) -->
-                            <div id="campos-gestante_editar" class="space-y-3 p-3 bg-yellow-50 rounded border border-yellow-200" style="display: none;">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label for="semanas_gestacion_editar" class="block text-sm font-medium text-gray-700 mb-2">Semanas de Gestación *</label>
-                                        <input type="number" id="semanas_gestacion_editar" name="semanas_gestacion" min="1" max="42" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 28">
-                                        <p class="text-xs text-gray-500 mt-1">Ingrese número de semanas (1-42)</p>
-                                    </div>
-                                    <div>
-                                        <label for="fecha_probable_parto_editar" class="block text-sm font-medium text-gray-700 mb-2">Fecha Probable de Parto</label>
-                                        <input type="date" id="fecha_probable_parto_editar" name="fecha_probable_parto" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                        <p class="text-xs text-gray-500 mt-1">Se calculará automáticamente</p>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label for="observaciones_gestacion_editar" class="block text-sm font-medium text-gray-700 mb-2">Observaciones</label>
-                                    <textarea id="observaciones_gestacion_editar" name="observaciones_gestacion" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Observaciones relevantes sobre la gestación"></textarea>
-                                </div>
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="editar_condicion_lactante" name="condicion_femenina" value="lactante" onchange="mostrarSubcondicionEditar()">
+                                <label for="editar_condicion_lactante">Lactante</label>
                             </div>
-                            
-                            <!-- Campos para lactantes (editar) -->
-                            <div id="campos-lactante_editar" class="space-y-3 p-3 bg-purple-50 rounded border border-purple-200" style="display: none;">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label for="fecha_nacimiento_nino_editar" class="block text-sm font-medium text-gray-700 mb-2">Fecha de Nacimiento del Niño *</label>
-                                        <input type="date" id="fecha_nacimiento_nino_editar" name="fecha_nacimiento_nino" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Edad del Niño</label>
-                                        <div class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-                                            <span id="edad_nino_display_editar" class="text-gray-700">--</span>
-                                            <input type="hidden" id="edad_nino_editar" name="edad_nino">
-                                        </div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Lactancia</label>
-                                    <div class="space-y-1">
-                                        <label class="inline-flex items-center">
-                                            <input type="radio" name="tipo_lactancia_editar" value="exclusiva" class="form-radio text-green-600">
-                                            <span class="ml-2 text-sm text-gray-700">Lactancia Materna Exclusiva</span>
-                                        </label>
-                                        <label class="inline-flex items-center">
-                                            <input type="radio" name="tipo_lactancia_editar" value="mixta" class="form-radio text-green-600">
-                                            <span class="ml-2 text-sm text-gray-700">Lactancia Mixta</span>
-                                        </label>
-                                        <label class="inline-flex items-center">
-                                            <input type="radio" name="tipo_lactancia_editar" value="complementaria" class="form-radio text-green-600">
-                                            <span class="ml-2 text-sm text-gray-700">Lactancia Complementaria</span>
-                                        </label>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label for="observaciones_lactancia_editar" class="block text-sm font-medium text-gray-700 mb-2">Observaciones</label>
-                                    <textarea id="observaciones_lactancia_editar" name="observaciones_lactancia" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Observaciones relevantes sobre la lactancia"></textarea>
-                                </div>
+                            <div class="condicion-femenina-radio">
+                                <input type="radio" id="editar_condicion_gestante" name="condicion_femenina" value="gestante" onchange="mostrarSubcondicionEditar()">
+                                <label for="editar_condicion_gestante">Gestante</label>
+                            </div>
+                        </div>
+                        
+                        <!-- Subcondición para lactante -->
+                        <div id="editar_subcondicion_lactante" class="condicion-subseccion">
+                            <div class="form-group">
+                                <label for="editar_fecha_nacimiento_bebe" class="required-label">Fecha de nacimiento del bebé</label>
+                                <input type="date" id="editar_fecha_nacimiento_bebe" name="fecha_nacimiento_bebe" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div class="text-xs text-amber-600 mt-1">
+                                <i class="fas fa-info-circle"></i> Se registrará la fecha de nacimiento del bebé para seguimiento.
+                            </div>
+                        </div>
+                        
+                        <!-- Subcondición para gestante -->
+                        <div id="editar_subcondicion_gestante" class="condicion-subseccion">
+                            <div class="form-group">
+                                <label for="editar_semanas_gestacion" class="required-label">Semanas de gestación</label>
+                                <input type="number" id="editar_semanas_gestacion" name="semanas_gestacion" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" min="1" max="42" placeholder="Ej: 24">
+                            </div>
+                            <div class="text-xs text-amber-600 mt-1">
+                                <i class="fas fa-info-circle"></i> Indique las semanas completas de gestación.
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="mb-6">
-                    <h4 class="text-lg font-medium text-gray-800 mb-4 border-b pb-2">Información Antropométrica</h4>
+                <!-- Antropometría -->
+                <div class="mb-6 bg-blue-50 p-4 rounded-lg">
+                    <h4 class="text-lg font-medium text-blue-800 mb-4 border-b pb-2">Antropometría</h4>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
-                            <label for="cbi_mm_editar" class="block text-sm font-medium text-gray-700 mb-2">CBI (mm)</label>
-                            <input type="number" id="cbi_mm_editar" name="cbi_mm" step="0.1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 142,0">
+                            <label for="editar_cbi_mm" class="block text-sm font-medium text-blue-700 mb-2 required">CBI (mm)</label>
+                            <input type="number" id="editar_cbi_mm" name="cbi_mm" step="0.1" required class="w-full border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 12.5">
                         </div>
                         <div>
-                            <label for="peso_kg_editar" class="block text-sm font-medium text-gray-700 mb-2">Peso (Kg) *</label>
-                            <input type="number" id="peso_kg_editar" name="peso_kg" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 28,5">
+                            <label for="editar_peso_kg" class="block text-sm font-medium text-blue-700 mb-2 required">Peso (Kg)</label>
+                            <input type="number" id="editar_peso_kg" name="peso_kg" step="0.1" required class="w-full border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 25.5">
                         </div>
                         <div>
-                            <label for="talla_cm_editar" class="block text-sm font-medium text-gray-700 mb-2">Talla (cm) *</label>
-                            <input type="number" id="talla_cm_editar" name="talla_cm" step="0.1" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 125,0">
+                            <label for="editar_talla_cm" class="block text-sm font-medium text-blue-700 mb-2 required">Talla (cm)</label>
+                            <input type="number" id="editar_talla_cm" name="talla_cm" step="0.1" required class="w-full border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: 120.0">
                         </div>
                         <div>
-                            <label for="cci_editar" class="block text-sm font-medium text-gray-700 mb-2">Cci</label>
-                            <input type="text" id="cci_editar" name="cci" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Calculado automáticamente">
+                            <label for="editar_imc" class="block text-sm font-medium text-blue-700 mb-2">IMC (Calculado)</label>
+                            <input type="text" id="editar_imc" name="imc" readonly class="w-full border border-blue-300 bg-blue-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Se calculará automáticamente">
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">IMC</label>
-                            <div class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-                                <span id="imc_display_editar" class="text-gray-700">--</span>
-                                <input type="hidden" id="imc_editar" name="imc">
-                            </div>
+                </div>
+                
+                <!-- Situación -->
+                <div class="mb-6 bg-green-50 p-4 rounded-lg">
+                    <h4 class="text-lg font-medium text-green-800 mb-4 border-b pb-2">Situación</h4>
+                    <div class="space-y-3">
+                        <div class="flex items-center">
+                            <input type="radio" id="editar_caso_1" name="situacion_dx" value="1" required class="h-4 w-4 text-green-600 focus:ring-green-500">
+                            <label for="editar_caso_1" class="ml-3 block text-sm font-medium text-green-700">
+                                Caso 1
+                            </label>
                         </div>
-                        <div>
-                            <label for="situacion_dx_editar" class="block text-sm font-medium text-gray-700 mb-2">Situación DX *</label>
-                            <select id="situacion_dx_editar" name="situacion_dx" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
-                                <option value="">Seleccionar situación</option>
-                                <option value="1">Caso 1</option>
-                                <option value="2">Caso 2</option>
-                            </select>
+                        <div class="flex items-center">
+                            <input type="radio" id="editar_caso_2" name="situacion_dx" value="2" required class="h-4 w-4 text-green-600 focus:ring-green-500">
+                            <label for="editar_caso_2" class="ml-3 block text-sm font-medium text-green-700">
+                                Caso 2
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -1288,228 +2127,23 @@ $totalNuevosIngresos = count($nuevosIngresos);
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <!-- Scripts para exportar a Excel -->
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
     <script>
+        // =====================================================================
+        // FUNCIONES GLOBALES
+        // =====================================================================
+
         // Variable global para la tabla
         var tablaBeneficiarios = null;
+        var tablaNuevosIngresos = null;
         var filtroActivo = null;
-        var tipoModalActual = 'online';
-        var beneficiarioEditando = null;
 
-        $(document).ready(function() {
-            console.log('DOM cargado, inicializando DataTable...');
-            
-            // Verificar que la tabla existe en el DOM
-            if ($('#tabla-beneficiarios').length === 0) {
-                console.error('No se encontró la tabla con id #tabla-beneficiarios');
-                return;
-            }
-            
-            // Inicializar DataTable SIN responsive y SIN scroll horizontal
-            try {
-                tablaBeneficiarios = $('#tabla-beneficiarios').DataTable({
-                    responsive: false, // DESACTIVAR responsive
-                    scrollX: false, // DESACTIVAR scroll horizontal
-                    autoWidth: false, // Usar anchos fijos
-                    language: {
-                        "decimal": ",",
-                        "emptyTable": "No hay datos disponibles",
-                        "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
-                        "infoEmpty": "Mostrando 0 a 0 de 0 registros",
-                        "infoFiltered": "(filtrado de _MAX_ registros Totales)",
-                        "infoPostFix": "",
-                        "thousands": ".",
-                        "lengthMenu": "Mostrar _MENU_ registros",
-                        "loadingRecords": "Cargando...",
-                        "processing": "Procesando...",
-                        "search": "Buscar:",
-                        "zeroRecords": "No se encontraron registros coincidentes",
-                        "paginate": {
-                            "first": "Primero",
-                            "last": "Último",
-                            "next": "Siguiente",
-                            "previous": "Anterior"
-                        }
-                    },
-                    pageLength: 10,
-                    lengthMenu: [5, 10, 25, 50],
-                    order: [[0, 'asc']],
-                    // Configuración de columnas SIN responsivePriority
-                    columnDefs: [
-                        { 
-                            targets: [5], // Columna de acciones
-                            orderable: false,
-                            searchable: false
-                        },
-                        // Definir anchos específicos para las columnas
-                        { width: "20%", targets: 0 }, // Ubicación
-                        { width: "18%", targets: 1 }, // Representante
-                        { width: "22%", targets: 2 }, // Beneficiario
-                        { width: "18%", targets: 3 }, // Antropometría
-                        { width: "12%", targets: 4 }, // Caso
-                        { width: "10%", targets: 5 }  // Acciones
-                    ],
-                    initComplete: function() {
-                        console.log('DataTable inicializado correctamente SIN responsive y SIN scroll horizontal');
-                        actualizarContador();
-                        // Ajustar columnas después de inicializar
-                        this.api().columns.adjust();
-                    },
-                    drawCallback: function() {
-                        actualizarContador();
-                    }
-                });
-                
-                console.log('DataTable creada SIN responsive y SIN scroll horizontal:', tablaBeneficiarios);
-                
-                // Ajustar la tabla cuando cambie el tamaño de la ventana
-                $(window).on('resize', function() {
-                    if (tablaBeneficiarios) {
-                        setTimeout(function() {
-                            tablaBeneficiarios.columns.adjust();
-                        }, 100);
-                    }
-                });
-                
-            } catch (error) {
-                console.error('Error al inicializar DataTable:', error);
-                return;
-            }
-
-            // Función para aplicar filtros
-            function aplicarFiltros() {
-                var municipio = $('#filtro-municipio').val();
-                var parroquia = $('#filtro-parroquia').val();
-                var sector = $('#filtro-sector').val();
-                var caso = $('#filtro-caso').val();
-                
-                console.log('Aplicando filtros:', { municipio, parroquia, sector, caso });
-                
-                // Verificar que la tabla existe
-                if (!tablaBeneficiarios) {
-                    console.error('La tabla no está inicializada');
-                    return;
-                }
-                
-                // Limpiar filtro anterior si existe
-                if (filtroActivo !== null) {
-                    $.fn.dataTable.ext.search.pop();
-                    filtroActivo = null;
-                }
-                
-                // Crear función de filtrado
-                filtroActivo = function(settings, data, dataIndex) {
-                    // Verificar que la tabla existe
-                    if (!tablaBeneficiarios) return true;
-                    
-                    var row = tablaBeneficiarios.row(dataIndex).node();
-                    if (!row) return true;
-                    
-                    var rowMunicipio = $(row).data('municipio');
-                    var rowParroquia = $(row).data('parroquia');
-                    var rowSector = $(row).data('sector');
-                    var rowCaso = $(row).data('caso');
-                    
-                    // Verificar cada filtro
-                    var municipioMatch = !municipio || rowMunicipio === municipio;
-                    var parroquiaMatch = !parroquia || rowParroquia === parroquia;
-                    var sectorMatch = !sector || rowSector === sector;
-                    var casoMatch = !caso || rowCaso === caso;
-                    
-                    // Retornar true si todos los filtros coinciden
-                    return municipioMatch && parroquiaMatch && sectorMatch && casoMatch;
-                };
-                
-                // Aplicar el filtro
-                $.fn.dataTable.ext.search.push(filtroActivo);
-                
-                // Redibujar la tabla
-                tablaBeneficiarios.draw();
-                
-                // Actualizar UI
-                actualizarUI();
-            }
-
-            // Función para limpiar filtros
-            function limpiarFiltros() {
-                console.log('Limpiando filtros');
-                
-                // Verificar que la tabla existe
-                if (!tablaBeneficiarios) {
-                    console.error('La tabla no está inicializada');
-                    return;
-                }
-                
-                // Limpiar selects
-                $('#filtro-municipio, #filtro-parroquia, #filtro-sector, #filtro-caso').val('');
-                
-                // Limpiar filtro de DataTable
-                if (filtroActivo !== null) {
-                    $.fn.dataTable.ext.search.pop();
-                    filtroActivo = null;
-                }
-                
-                // Limpiar búsqueda de DataTable
-                tablaBeneficiarios.search('');
-                
-                // Redibujar tabla
-                tablaBeneficiarios.draw();
-                
-                // Actualizar UI
-                actualizarUI();
-            }
-
-            // Función para actualizar UI
-            function actualizarUI() {
-                // Quitar clase activa de todos
-                $('#filtro-municipio, #filtro-parroquia, #filtro-sector, #filtro-caso').removeClass('filter-active');
-                
-                // Agregar clase activa a los que tienen valor
-                if ($('#filtro-municipio').val()) $('#filtro-municipio').addClass('filter-active');
-                if ($('#filtro-parroquia').val()) $('#filtro-parroquia').addClass('filter-active');
-                if ($('#filtro-sector').val()) $('#filtro-sector').addClass('filter-active');
-                if ($('#filtro-caso').val()) $('#filtro-caso').addClass('filter-active');
-            }
-
-            // Función para actualizar contador
-            function actualizarContador() {
-                // Verificar que la tabla existe
-                if (!tablaBeneficiarios) {
-                    console.error('La tabla no está inicializada en actualizarContador');
-                    return;
-                }
-                
-                try {
-                    var totalFiltrado = tablaBeneficiarios.rows({ search: 'applied' }).count();
-                    $('#total-registros').text(totalFiltrado);
-                    console.log('Contador actualizado:', totalFiltrado);
-                } catch (error) {
-                    console.error('Error en actualizarContador:', error);
-                }
-            }
-
-            // Event listeners
-            $('#btn-aplicar-filtros').on('click', function() {
-                console.log('Botón aplicar filtros clickeado');
-                aplicarFiltros();
-            });
-            
-            $('#btn-limpiar-filtros').on('click', function() {
-                console.log('Botón limpiar filtros clickeado');
-                limpiarFiltros();
-            });
-            
-            // Aplicar filtros automáticamente cuando cambian los selects
-            $('#filtro-municipio, #filtro-parroquia, #filtro-sector, #filtro-caso').on('change', function() {
-                console.log('Select cambiado:', this.id);
-                aplicarFiltros();
-            });
-        });
-
-        // =====================================================================
-        // FUNCIONALIDAD PARA EL MODAL (Municipio -> Parroquia -> Sector)
-        // =====================================================================
-
-        // Datos de parroquias y sectores (desde PHP)
+        // Datos de parroquias y sectores
         let parroquiasData = {};
         let sectoresData = {};
         
@@ -1520,919 +2154,9 @@ $totalNuevosIngresos = count($nuevosIngresos);
             console.error('Error al parsear datos JSON:', error);
         }
 
-        // Elementos del formulario del modal
-        let municipioSelect = null;
-        let parroquiaSelect = null;
-        let sectorSelect = null;
-
-        // Función para inicializar el sistema de dependencias del modal
-        function inicializarDependenciasModal() {
-            municipioSelect = document.getElementById('municipio');
-            parroquiaSelect = document.getElementById('parroquia');
-            sectorSelect = document.getElementById('sector');
-            
-            if (!municipioSelect || !parroquiaSelect || !sectorSelect) {
-                console.error('No se encontraron todos los elementos del formulario');
-                return;
-            }
-            
-            // Evento cuando cambia el municipio
-            municipioSelect.addEventListener('change', function() {
-                const municipioSeleccionado = this.value;
-                
-                // Limpiar y resetear parroquia
-                parroquiaSelect.innerHTML = '<option value="">Seleccionar parroquia</option>';
-                parroquiaSelect.disabled = !municipioSeleccionado;
-                parroquiaSelect.value = '';
-                
-                // Limpiar y resetear sector
-                sectorSelect.innerHTML = '<option value="">Primero seleccione parroquia</option>';
-                sectorSelect.disabled = true;
-                sectorSelect.value = '';
-                
-                // Si hay municipio seleccionado, cargar sus parroquias
-                if (municipioSeleccionado && parroquiasData[municipioSeleccionado]) {
-                    const parroquias = parroquiasData[municipioSeleccionado];
-                    
-                    parroquias.forEach(function(parroquia) {
-                        const option = document.createElement('option');
-                        option.value = parroquia;
-                        option.textContent = parroquia;
-                        parroquiaSelect.appendChild(option);
-                    });
-                }
-            });
-
-            // Evento cuando cambia la parroquia
-            parroquiaSelect.addEventListener('change', function() {
-                const parroquiaSeleccionada = this.value;
-                
-                // Limpiar y resetear sector
-                sectorSelect.innerHTML = '<option value="">Seleccionar sector</option>';
-                sectorSelect.disabled = !parroquiaSeleccionada;
-                sectorSelect.value = '';
-                
-                // Si hay parroquia seleccionada, cargar sus sectores
-                if (parroquiaSeleccionada && sectoresData[parroquiaSeleccionada]) {
-                    const sectores = sectoresData[parroquiaSeleccionada];
-                    
-                    sectores.forEach(function(sector) {
-                        const option = document.createElement('option');
-                        option.value = sector;
-                        option.textContent = sector;
-                        sectorSelect.appendChild(option);
-                    });
-                    
-                    // Agregar opción para nuevo sector
-                    const optionNuevoSector = document.createElement('option');
-                    optionNuevoSector.value = 'nuevo';
-                    optionNuevoSector.textContent = '➕ Agregar nuevo sector';
-                    sectorSelect.appendChild(optionNuevoSector);
-                }
-            });
-
-            // Evento para agregar nuevo sector
-            sectorSelect.addEventListener('change', function() {
-                if (this.value === 'nuevo') {
-                    const nuevoSector = prompt('Ingrese el nombre del nuevo sector:');
-                    
-                    if (nuevoSector && nuevoSector.trim() !== '') {
-                        // Crear nueva opción
-                        const option = document.createElement('option');
-                        option.value = nuevoSector.trim();
-                        option.textContent = nuevoSector.trim();
-                        option.selected = true;
-                        
-                        // Reemplazar la opción "nuevo" con el nuevo sector
-                        this.innerHTML = '<option value="">Seleccionar sector</option>';
-                        this.appendChild(option);
-                        
-                        // También añadir opción para agregar otro nuevo
-                        const optionNuevoSector = document.createElement('option');
-                        optionNuevoSector.value = 'nuevo';
-                        optionNuevoSector.textContent = '➕ Agregar nuevo sector';
-                        this.appendChild(optionNuevoSector);
-                    } else {
-                        // Si canceló, volver a la selección anterior
-                        this.value = '';
-                    }
-                }
-            });
-            
-            console.log('Sistema de dependencias del modal inicializado');
-        }
-
         // =====================================================================
-        // FUNCIONALIDAD PARA EL MODAL DE EDITAR (Municipio -> Parroquia -> Sector)
+        // FUNCIONES GENERALES
         // =====================================================================
-
-        function inicializarDependenciasModalEditar() {
-            const municipioSelectEditar = document.getElementById('municipio_editar');
-            const parroquiaSelectEditar = document.getElementById('parroquia_editar');
-            const sectorSelectEditar = document.getElementById('sector_editar');
-            
-            if (!municipioSelectEditar || !parroquiaSelectEditar || !sectorSelectEditar) {
-                console.error('No se encontraron todos los elementos del formulario de edición');
-                return;
-            }
-            
-            // Evento cuando cambia el municipio en edición
-            municipioSelectEditar.addEventListener('change', function() {
-                const municipioSeleccionado = this.value;
-                
-                // Limpiar y resetear parroquia
-                parroquiaSelectEditar.innerHTML = '<option value="">Seleccionar parroquia</option>';
-                parroquiaSelectEditar.disabled = !municipioSeleccionado;
-                parroquiaSelectEditar.value = '';
-                
-                // Limpiar y resetear sector
-                sectorSelectEditar.innerHTML = '<option value="">Primero seleccione parroquia</option>';
-                sectorSelectEditar.disabled = true;
-                sectorSelectEditar.value = '';
-                
-                // Si hay municipio seleccionado, cargar sus parroquias
-                if (municipioSeleccionado && parroquiasData[municipioSeleccionado]) {
-                    const parroquias = parroquiasData[municipioSeleccionado];
-                    
-                    parroquias.forEach(function(parroquia) {
-                        const option = document.createElement('option');
-                        option.value = parroquia;
-                        option.textContent = parroquia;
-                        parroquiaSelectEditar.appendChild(option);
-                    });
-                }
-            });
-
-            // Evento cuando cambia la parroquia en edición
-            parroquiaSelectEditar.addEventListener('change', function() {
-                const parroquiaSeleccionada = this.value;
-                
-                // Limpiar y resetear sector
-                sectorSelectEditar.innerHTML = '<option value="">Seleccionar sector</option>';
-                sectorSelectEditar.disabled = !parroquiaSeleccionada;
-                sectorSelectEditar.value = '';
-                
-                // Si hay parroquia seleccionada, cargar sus sectores
-                if (parroquiaSeleccionada && sectoresData[parroquiaSeleccionada]) {
-                    const sectores = sectoresData[parroquiaSeleccionada];
-                    
-                    sectores.forEach(function(sector) {
-                        const option = document.createElement('option');
-                        option.value = sector;
-                        option.textContent = sector;
-                        sectorSelectEditar.appendChild(option);
-                    });
-                    
-                    // Agregar opción para nuevo sector
-                    const optionNuevoSector = document.createElement('option');
-                    optionNuevoSector.value = 'nuevo';
-                    optionNuevoSector.textContent = '➕ Agregar nuevo sector';
-                    sectorSelectEditar.appendChild(optionNuevoSector);
-                }
-            });
-
-            // Evento para agregar nuevo sector en edición
-            sectorSelectEditar.addEventListener('change', function() {
-                if (this.value === 'nuevo') {
-                    const nuevoSector = prompt('Ingrese el nombre del nuevo sector:');
-                    
-                    if (nuevoSector && nuevoSector.trim() !== '') {
-                        // Crear nueva opción
-                        const option = document.createElement('option');
-                        option.value = nuevoSector.trim();
-                        option.textContent = nuevoSector.trim();
-                        option.selected = true;
-                        
-                        // Reemplazar la opción "nuevo" con el nuevo sector
-                        this.innerHTML = '<option value="">Seleccionar sector</option>';
-                        this.appendChild(option);
-                        
-                        // También añadir opción para agregar otro nuevo
-                        const optionNuevoSector = document.createElement('option');
-                        optionNuevoSector.value = 'nuevo';
-                        optionNuevoSector.textContent = '➕ Agregar nuevo sector';
-                        this.appendChild(optionNuevoSector);
-                    } else {
-                        // Si canceló, volver a la selección anterior
-                        this.value = '';
-                    }
-                }
-            });
-            
-            console.log('Sistema de dependencias del modal de edición inicializado');
-        }
-
-        // =====================================================================
-        // FUNCIONALIDAD PARA CALCULAR EDAD E IMC (CORREGIDA)
-        // =====================================================================
-
-        // Función para formatear números en JavaScript
-        function formatearNumeroJS(valor, decimales = 2) {
-            if (valor === null || valor === '' || isNaN(valor)) {
-                return '--';
-            }
-            // Usar punto como separador decimal para cálculos, coma para visualización
-            return parseFloat(valor).toFixed(decimales).replace('.', ',');
-        }
-
-        // Inicializar cálculos de edad e IMC para modal nuevo
-        function inicializarCalculos() {
-            const fechaNacimiento = document.getElementById('fecha_nacimiento');
-            const pesoInput = document.getElementById('peso_kg');
-            const tallaInput = document.getElementById('talla_cm');
-            
-            if (fechaNacimiento) {
-                fechaNacimiento.addEventListener('change', calcularEdad);
-            }
-            
-            if (pesoInput && tallaInput) {
-                pesoInput.addEventListener('input', calcularIMC);
-                tallaInput.addEventListener('input', calcularIMC);
-            }
-        }
-
-        // Inicializar cálculos de edad e IMC para modal editar
-        function inicializarCalculosEditar() {
-            const fechaNacimientoEditar = document.getElementById('fecha_nacimiento_editar');
-            const pesoInputEditar = document.getElementById('peso_kg_editar');
-            const tallaInputEditar = document.getElementById('talla_cm_editar');
-            
-            if (fechaNacimientoEditar) {
-                fechaNacimientoEditar.addEventListener('change', calcularEdadEditar);
-            }
-            
-            if (pesoInputEditar && tallaInputEditar) {
-                pesoInputEditar.addEventListener('input', calcularIMCEditar);
-                tallaInputEditar.addEventListener('input', calcularIMCEditar);
-            }
-        }
-
-        function calcularEdad() {
-            const fechaNacimiento = new Date(document.getElementById('fecha_nacimiento').value);
-            const hoy = new Date();
-            
-            if (fechaNacimiento && fechaNacimiento <= hoy) {
-                let edad = hoy.getFullYear() - fechaNacimiento.getFullYear();
-                const mes = hoy.getMonth() - fechaNacimiento.getMonth();
-                
-                if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNacimiento.getDate())) {
-                    edad--;
-                }
-                
-                // Mostrar edad directamente
-                document.getElementById('edad_display').textContent = edad + ' años';
-                document.getElementById('edad').value = edad;
-            } else {
-                document.getElementById('edad_display').textContent = '-- años';
-                document.getElementById('edad').value = '';
-            }
-        }
-
-        function calcularIMC() {
-            // Obtener valores reemplazando coma por punto para cálculos
-            const pesoValor = document.getElementById('peso_kg').value.replace(',', '.');
-            const tallaValor = document.getElementById('talla_cm').value.replace(',', '.');
-            
-            const peso = parseFloat(pesoValor);
-            const talla = parseFloat(tallaValor) / 100; // convertir a metros
-            
-            if (!isNaN(peso) && !isNaN(talla) && talla > 0) {
-                const imc = peso / (talla * talla);
-                // Formatear a 2 decimales con coma
-                const imcFormateado = formatearNumeroJS(imc, 2);
-                
-                // Mostrar IMC formateado
-                document.getElementById('imc_display').textContent = imcFormateado;
-                // Guardar con punto para cálculos
-                document.getElementById('imc').value = imc.toFixed(4);
-                
-                // Colorear según categoría de IMC
-                const imcDisplay = document.getElementById('imc_display');
-                imcDisplay.className = 'text-gray-700';
-                
-                if (imc < 18.5) {
-                    imcDisplay.className = 'imc-bajo';
-                } else if (imc >= 18.5 && imc < 25) {
-                    imcDisplay.className = 'imc-normal';
-                } else if (imc >= 25 && imc < 30) {
-                    imcDisplay.className = 'imc-sobrepeso';
-                } else if (imc >= 30) {
-                    imcDisplay.className = 'imc-obeso';
-                }
-            } else {
-                document.getElementById('imc_display').textContent = '--';
-                document.getElementById('imc').value = '';
-            }
-        }
-
-        function calcularEdadEditar() {
-            const fechaNacimiento = new Date(document.getElementById('fecha_nacimiento_editar').value);
-            const hoy = new Date();
-            
-            if (fechaNacimiento && fechaNacimiento <= hoy) {
-                let edad = hoy.getFullYear() - fechaNacimiento.getFullYear();
-                const mes = hoy.getMonth() - fechaNacimiento.getMonth();
-                
-                if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNacimiento.getDate())) {
-                    edad--;
-                }
-                
-                // Mostrar edad directamente
-                document.getElementById('edad_display_editar').textContent = edad + ' años';
-                document.getElementById('edad_editar').value = edad;
-            } else {
-                document.getElementById('edad_display_editar').textContent = '-- años';
-                document.getElementById('edad_editar').value = '';
-            }
-        }
-
-        function calcularIMCEditar() {
-            // Obtener valores reemplazando coma por punto para cálculos
-            const pesoValor = document.getElementById('peso_kg_editar').value.replace(',', '.');
-            const tallaValor = document.getElementById('talla_cm_editar').value.replace(',', '.');
-            
-            const peso = parseFloat(pesoValor);
-            const talla = parseFloat(tallaValor) / 100; // convertir a metros
-            
-            if (!isNaN(peso) && !isNaN(talla) && talla > 0) {
-                const imc = peso / (talla * talla);
-                // Formatear a 2 decimales con coma
-                const imcFormateado = formatearNumeroJS(imc, 2);
-                
-                // Mostrar IMC formateado
-                document.getElementById('imc_display_editar').textContent = imcFormateado;
-                // Guardar con punto para cálculos
-                document.getElementById('imc_editar').value = imc.toFixed(4);
-                
-                // Colorear según categoría de IMC
-                const imcDisplay = document.getElementById('imc_display_editar');
-                imcDisplay.className = 'text-gray-700';
-                
-                if (imc < 18.5) {
-                    imcDisplay.className = 'imc-bajo';
-                } else if (imc >= 18.5 && imc < 25) {
-                    imcDisplay.className = 'imc-normal';
-                } else if (imc >= 25 && imc < 30) {
-                    imcDisplay.className = 'imc-sobrepeso';
-                } else if (imc >= 30) {
-                    imcDisplay.className = 'imc-obeso';
-                }
-            } else {
-                document.getElementById('imc_display_editar').textContent = '--';
-                document.getElementById('imc_editar').value = '';
-            }
-        }
-
-        // =====================================================================
-        // FUNCIONALIDAD ESPECÍFICA PARA MUJERES (GESTANTES Y LACTANTES)
-        // =====================================================================
-
-        // Inicializar funcionalidad de mujeres para modal nuevo
-        function inicializarFuncionalidadMujeres() {
-            const generoSelect = document.getElementById('genero');
-            const seccionMujer = document.getElementById('seccion-mujer');
-            const camposGestante = document.getElementById('campos-gestante');
-            const camposLactante = document.getElementById('campos-lactante');
-            
-            if (!generoSelect || !seccionMujer) {
-                console.error('No se encontraron elementos para funcionalidad de mujeres');
-                return;
-            }
-            
-            // Evento cuando cambia el género
-            generoSelect.addEventListener('change', function() {
-                const generoSeleccionado = this.value;
-                
-                // Mostrar/ocultar sección de mujeres
-                if (generoSeleccionado === 'FEMENINO') {
-                    seccionMujer.style.display = 'block';
-                    // Limpiar valores anteriores
-                    limpiarCamposMujeres();
-                } else {
-                    seccionMujer.style.display = 'none';
-                    limpiarCamposMujeres();
-                }
-            });
-            
-            // Evento para condición de mujer (gestante/lactante)
-            document.querySelectorAll('input[name="condicion_mujer"]').forEach(radio => {
-                radio.addEventListener('change', function() {
-                    const condicion = this.value;
-                    
-                    // Mostrar/ocultar campos según condición
-                    if (condicion === 'gestante') {
-                        camposGestante.style.display = 'block';
-                        camposLactante.style.display = 'none';
-                    } else if (condicion === 'lactante') {
-                        camposGestante.style.display = 'none';
-                        camposLactante.style.display = 'block';
-                    } else {
-                        // Ninguna condición
-                        camposGestante.style.display = 'none';
-                        camposLactante.style.display = 'none';
-                    }
-                });
-            });
-        }
-
-        // Inicializar funcionalidad de mujeres para modal editar
-        function inicializarFuncionalidadMujeresEditar() {
-            const generoSelectEditar = document.getElementById('genero_editar');
-            const seccionMujerEditar = document.getElementById('seccion-mujer_editar');
-            const camposGestanteEditar = document.getElementById('campos-gestante_editar');
-            const camposLactanteEditar = document.getElementById('campos-lactante_editar');
-            
-            if (!generoSelectEditar || !seccionMujerEditar) {
-                console.error('No se encontraron elementos para funcionalidad de mujeres en edición');
-                return;
-            }
-            
-            // Evento cuando cambia el género en edición
-            generoSelectEditar.addEventListener('change', function() {
-                const generoSeleccionado = this.value;
-                
-                // Mostrar/ocultar sección de mujeres
-                if (generoSeleccionado === 'FEMENINO') {
-                    seccionMujerEditar.style.display = 'block';
-                } else {
-                    seccionMujerEditar.style.display = 'none';
-                    limpiarCamposMujeresEditar();
-                }
-            });
-            
-            // Evento para condición de mujer (gestante/lactante) en edición
-            document.querySelectorAll('input[name="condicion_mujer_editar"]').forEach(radio => {
-                radio.addEventListener('change', function() {
-                    const condicion = this.value;
-                    
-                    // Mostrar/ocultar campos según condición
-                    if (condicion === 'gestante') {
-                        camposGestanteEditar.style.display = 'block';
-                        camposLactanteEditar.style.display = 'none';
-                    } else if (condicion === 'lactante') {
-                        camposGestanteEditar.style.display = 'none';
-                        camposLactanteEditar.style.display = 'block';
-                    } else {
-                        // Ninguna condición
-                        camposGestanteEditar.style.display = 'none';
-                        camposLactanteEditar.style.display = 'none';
-                    }
-                });
-            });
-        }
-
-        // Función para limpiar campos específicos de mujeres
-        function limpiarCamposMujeres() {
-            // Resetear radios
-            document.querySelector('input[name="condicion_mujer"][value="ninguna"]').checked = true;
-            
-            // Ocultar campos específicos
-            const camposGestante = document.getElementById('campos-gestante');
-            const camposLactante = document.getElementById('campos-lactante');
-            if (camposGestante) camposGestante.style.display = 'none';
-            if (camposLactante) camposLactante.style.display = 'none';
-            
-            // Limpiar inputs
-            document.getElementById('semanas_gestacion').value = '';
-            document.getElementById('fecha_probable_parto').value = '';
-            document.getElementById('fecha_nacimiento_nino').value = '';
-            document.getElementById('edad_nino_display').textContent = '--';
-            if (document.getElementById('edad_nino')) document.getElementById('edad_nino').value = '';
-            
-            // Limpiar textareas
-            document.getElementById('observaciones_gestacion').value = '';
-            document.getElementById('observaciones_lactancia').value = '';
-            
-            // Resetear radios de tipo lactancia
-            document.querySelectorAll('input[name="tipo_lactancia"]').forEach(radio => {
-                radio.checked = false;
-            });
-        }
-
-        // Función para limpiar campos específicos de mujeres en edición
-        function limpiarCamposMujeresEditar() {
-            // Resetear radios
-            document.querySelector('input[name="condicion_mujer_editar"][value="ninguna"]').checked = true;
-            
-            // Ocultar campos específicos
-            const camposGestanteEditar = document.getElementById('campos-gestante_editar');
-            const camposLactanteEditar = document.getElementById('campos-lactante_editar');
-            if (camposGestanteEditar) camposGestanteEditar.style.display = 'none';
-            if (camposLactanteEditar) camposLactanteEditar.style.display = 'none';
-            
-            // Limpiar inputs
-            document.getElementById('semanas_gestacion_editar').value = '';
-            document.getElementById('fecha_probable_parto_editar').value = '';
-            document.getElementById('fecha_nacimiento_nino_editar').value = '';
-            document.getElementById('edad_nino_display_editar').textContent = '--';
-            if (document.getElementById('edad_nino_editar')) document.getElementById('edad_nino_editar').value = '';
-            
-            // Limpiar textareas
-            document.getElementById('observaciones_gestacion_editar').value = '';
-            document.getElementById('observaciones_lactancia_editar').value = '';
-            
-            // Resetear radios de tipo lactancia
-            document.querySelectorAll('input[name="tipo_lactancia_editar"]').forEach(radio => {
-                radio.checked = false;
-            });
-        }
-
-        // =====================================================================
-        // FUNCIONES DEL MODAL NUEVO
-        // =====================================================================
-
-        function abrirModal(tipo = 'online') {
-            console.log('Abriendo modal para:', tipo);
-            tipoModalActual = tipo;
-            
-            // Configurar el modal según el tipo
-            const modalTitulo = document.getElementById('modal-titulo');
-            const btnGuardarTexto = document.getElementById('btn-guardar-texto');
-            const formTipo = document.getElementById('form-tipo');
-            
-            if (tipo === 'online') {
-                modalTitulo.textContent = 'Nuevo Beneficiario';
-                btnGuardarTexto.textContent = 'Guardar Beneficiario';
-                formTipo.value = 'online';
-                document.getElementById('form-action').value = 'create';
-            } else {
-                modalTitulo.textContent = 'Registro de Nuevo Ingreso';
-                btnGuardarTexto.textContent = 'Guardar como Nuevo Ingreso';
-                formTipo.value = 'offline';
-                document.getElementById('form-action').value = 'create_offline';
-            }
-            
-            document.getElementById('nuevoBeneficiarioModal').style.display = 'flex';
-            
-            // Inicializar dependencias del modal
-            inicializarDependenciasModal();
-            
-            // Inicializar cálculos
-            inicializarCalculos();
-            
-            // Inicializar funcionalidad de mujeres
-            inicializarFuncionalidadMujeres();
-            
-            // Resetear el formulario
-            const form = document.getElementById('formNuevoBeneficiario');
-            if (form) {
-                form.reset();
-            }
-            
-            // Resetear valores de visualización
-            document.getElementById('edad_display').textContent = '-- años';
-            document.getElementById('imc_display').textContent = '--';
-            document.getElementById('edad').value = '';
-            document.getElementById('imc').value = '';
-            
-            // Resetear campos de mujeres
-            limpiarCamposMujeres();
-            
-            // Resetear selects dependientes
-            if (parroquiaSelect) {
-                parroquiaSelect.innerHTML = '<option value="">Primero seleccione municipio</option>';
-                parroquiaSelect.disabled = true;
-            }
-            
-            if (sectorSelect) {
-                sectorSelect.innerHTML = '<option value="">Primero seleccione parroquia</option>';
-                sectorSelect.disabled = true;
-            }
-            
-            // Ocultar sección de mujeres por defecto
-            const seccionMujer = document.getElementById('seccion-mujer');
-            if (seccionMujer) {
-                seccionMujer.style.display = 'none';
-            }
-        }
-        
-        function cerrarModal() {
-            console.log('Cerrando modal nuevo');
-            document.getElementById('nuevoBeneficiarioModal').style.display = 'none';
-        }
-
-        // =====================================================================
-        // FUNCIONES DEL MODAL EDITAR
-        // =====================================================================
-
-        function abrirModalEditar(beneficiarioId) {
-            console.log('Abriendo modal para editar beneficiario:', beneficiarioId);
-            beneficiarioEditando = beneficiarioId;
-            
-            // Cerrar cualquier modal abierto
-            cerrarModal();
-            cerrarModalEditar();
-            
-            // Mostrar modal de edición
-            document.getElementById('editarBeneficiarioModal').style.display = 'flex';
-            
-            // Inicializar dependencias del modal de edición
-            inicializarDependenciasModalEditar();
-            
-            // Inicializar cálculos para edición
-            inicializarCalculosEditar();
-            
-            // Inicializar funcionalidad de mujeres para edición
-            inicializarFuncionalidadMujeresEditar();
-            
-            // Buscar y cargar datos del beneficiario
-            cargarDatosBeneficiario(beneficiarioId);
-        }
-        
-        function cerrarModalEditar() {
-            console.log('Cerrando modal editar');
-            document.getElementById('editarBeneficiarioModal').style.display = 'none';
-        }
-
-        // Función para cargar datos del beneficiario en el formulario de edición
-        function cargarDatosBeneficiario(beneficiarioId) {
-            // Aquí normalmente harías una petición AJAX para obtener los datos
-            // Por ahora, simulamos con datos de la tabla
-            
-            const fila = document.querySelector(`tr[data-id="${beneficiarioId}"]`);
-            if (!fila) {
-                console.error('No se encontró la fila del beneficiario');
-                return;
-            }
-            
-            // Obtener datos de la fila
-            const municipio = fila.dataset.municipio;
-            const parroquia = fila.dataset.parroquia;
-            const sector = fila.dataset.sector;
-            const caso = fila.dataset.caso;
-            
-            // Obtener datos de las celdas
-            const celdas = fila.cells;
-            
-            // Datos de ubicación
-            const ubicacionDivs = celdas[0].querySelectorAll('div');
-            const municipioText = ubicacionDivs[0].textContent;
-            const parroquiaText = ubicacionDivs[1].textContent;
-            const sectorText = ubicacionDivs[2].textContent;
-            
-            // Datos del representante
-            const representanteDivs = celdas[1].querySelectorAll('div');
-            const nombreRepresentante = representanteDivs[0].textContent;
-            const cedulaRepresentante = representanteDivs[1].textContent;
-            
-            // Datos del beneficiario
-            const beneficiarioDiv = celdas[2].querySelector('.ml-3');
-            const nombreCompleto = beneficiarioDiv.querySelector('div:nth-child(1)').textContent;
-            const cedulaBeneficiario = beneficiarioDiv.querySelector('div:nth-child(2)').textContent;
-            const edadText = beneficiarioDiv.querySelector('div:nth-child(3)').textContent;
-            
-            // Extraer nombre y apellido
-            const [nombreBeneficiario, apellidoBeneficiario] = nombreCompleto.split(' ');
-            
-            // Datos antropométricos - obtener valores numéricos de los atributos data
-            const peso = parseFloat(fila.dataset.peso || '0');
-            const talla = parseFloat(fila.dataset.talla || '0');
-            const cbi = parseFloat(fila.dataset.cbi || '0');
-            const imc = parseFloat(fila.dataset.imc || '0');
-            
-            // Datos del caso
-            const casoSpan = celdas[4].querySelector('span');
-            const casoText = casoSpan.textContent.replace('Caso ', '');
-            
-            // Llenar el formulario con los datos
-            document.getElementById('beneficiario_id').value = beneficiarioId;
-            document.getElementById('municipio_editar').value = municipioText;
-            
-            // Cargar parroquias del municipio
-            const municipioSelectEditar = document.getElementById('municipio_editar');
-            const parroquiaSelectEditar = document.getElementById('parroquia_editar');
-            
-            if (municipioText && parroquiasData[municipioText]) {
-                // Habilitar y cargar parroquias
-                parroquiaSelectEditar.disabled = false;
-                parroquiaSelectEditar.innerHTML = '<option value="">Seleccionar parroquia</option>';
-                
-                const parroquias = parroquiasData[municipioText];
-                parroquias.forEach(function(parroquia) {
-                    const option = document.createElement('option');
-                    option.value = parroquia;
-                    option.textContent = parroquia;
-                    parroquiaSelectEditar.appendChild(option);
-                });
-                
-                // Seleccionar la parroquia correcta
-                parroquiaSelectEditar.value = parroquiaText;
-                
-                // Cargar sectores de la parroquia
-                const sectorSelectEditar = document.getElementById('sector_editar');
-                
-                if (parroquiaText && sectoresData[parroquiaText]) {
-                    // Habilitar y cargar sectores
-                    sectorSelectEditar.disabled = false;
-                    sectorSelectEditar.innerHTML = '<option value="">Seleccionar sector</option>';
-                    
-                    const sectores = sectoresData[parroquiaText];
-                    sectores.forEach(function(sector) {
-                        const option = document.createElement('option');
-                        option.value = sector;
-                        option.textContent = sector;
-                        sectorSelectEditar.appendChild(option);
-                    });
-                    
-                    // Agregar opción para nuevo sector
-                    const optionNuevoSector = document.createElement('option');
-                    optionNuevoSector.value = 'nuevo';
-                    optionNuevoSector.textContent = '➕ Agregar nuevo sector';
-                    sectorSelectEditar.appendChild(optionNuevoSector);
-                    
-                    // Seleccionar el sector correcto
-                    sectorSelectEditar.value = sectorText;
-                }
-            }
-            
-            // Llenar otros campos
-            document.getElementById('nombre_representante_editar').value = nombreRepresentante;
-            document.getElementById('cedula_representante_editar').value = cedulaRepresentante;
-            document.getElementById('nombre_beneficiario_editar').value = nombreBeneficiario;
-            document.getElementById('apellido_beneficiario_editar').value = apellidoBeneficiario || '';
-            document.getElementById('cedula_beneficiario_editar').value = cedulaBeneficiario;
-            document.getElementById('edad_display_editar').textContent = edadText;
-            
-            // Formatear números para mostrar con coma
-            document.getElementById('peso_kg_editar').value = isNaN(peso) ? '' : peso.toFixed(1).replace('.', ',');
-            document.getElementById('talla_cm_editar').value = isNaN(talla) ? '' : talla.toFixed(1).replace('.', ',');
-            document.getElementById('cbi_mm_editar').value = isNaN(cbi) ? '' : cbi.toFixed(1).replace('.', ',');
-            document.getElementById('situacion_dx_editar').value = casoText;
-            
-            // Calcular IMC automáticamente
-            setTimeout(() => {
-                calcularIMCEditar();
-            }, 100);
-            
-            console.log('Datos del beneficiario cargados en el formulario de edición');
-        }
-
-        // =====================================================================
-        // FUNCIONES GENERALES DE LOS MODALES
-        // =====================================================================
-
-        // Cerrar modales con Escape
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                cerrarModal();
-                cerrarModalEditar();
-            }
-        });
-
-        // Cerrar modales al hacer clic fuera
-        window.addEventListener('click', function(e) {
-            const modal = document.getElementById('nuevoBeneficiarioModal');
-            const modalEditar = document.getElementById('editarBeneficiarioModal');
-            
-            if (e.target === modal) {
-                cerrarModal();
-            }
-            if (e.target === modalEditar) {
-                cerrarModalEditar();
-            }
-        });
-
-        // Manejar envío del formulario de nuevo beneficiario
-        document.getElementById('formNuevoBeneficiario').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Convertir comas a puntos en los campos numéricos antes de enviar
-            const camposNumericos = ['peso_kg', 'talla_cm', 'cbi_mm', 'cci'];
-            camposNumericos.forEach(campo => {
-                const input = document.getElementById(campo);
-                if (input && input.value) {
-                    input.value = input.value.replace(',', '.');
-                }
-            });
-            
-            if (tipoModalActual === 'offline') {
-                // Guardar como nuevo ingreso
-                guardarComoNuevoIngreso();
-            } else {
-                // Enviar al servidor (beneficiario regular)
-                this.submit();
-            }
-        });
-
-        // Manejar envío del formulario de editar beneficiario
-        document.getElementById('formEditarBeneficiario').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Convertir comas a puntos en los campos numéricos antes de enviar
-            const camposNumericos = ['peso_kg_editar', 'talla_cm_editar', 'cbi_mm_editar', 'cci_editar'];
-            camposNumericos.forEach(campo => {
-                const input = document.getElementById(campo);
-                if (input && input.value) {
-                    input.value = input.value.replace(',', '.');
-                }
-            });
-            
-            // Aquí podrías agregar validación adicional
-            console.log('Actualizando beneficiario:', beneficiarioEditando);
-            
-            // Enviar formulario
-            this.submit();
-        });
-
-        // =====================================================================
-        // FUNCIONES PARA NUEVOS INGRESOS
-        // =====================================================================
-
-        function guardarComoNuevoIngreso() {
-            const formData = new FormData(document.getElementById('formNuevoBeneficiario'));
-            const data = {};
-            
-            // Convertir FormData a objeto
-            for (let [key, value] of formData.entries()) {
-                data[key] = value;
-            }
-            
-            // Agregar fecha de creación
-            data.fecha_creacion = new Date().toLocaleString('es-VE');
-            
-            // Aquí normalmente guardarías en localStorage o IndexedDB
-            // Por ahora simulamos con un prompt
-            console.log('Datos para guardar como nuevo ingreso:', data);
-            
-            alert('Beneficiario guardado como nuevo ingreso. Se incorporará a la base principal cuando sea aprobado.');
-            cerrarModal();
-            
-            // Recargar la página para mostrar el nuevo registro
-            setTimeout(() => {
-                location.reload();
-            }, 1000);
-        }
-
-        function incorporarTodo() {
-            if (confirm('¿Está seguro de que desea incorporar todos los nuevos ingresos a la base de datos principal?')) {
-                // Aquí iría la lógica para incorporar a la base principal
-                alert('Incorporando todos los nuevos ingresos...');
-                // Después de incorporar, recargar la página
-                setTimeout(() => {
-                    location.reload();
-                }, 1500);
-            }
-        }
-
-        function incorporarRegistro(index) {
-            if (confirm('¿Incorporar este registro a la base de datos principal?')) {
-                // Aquí iría la lógica para incorporar un registro específico
-                alert('Incorporando registro a la base principal...');
-                // Después de incorporar, recargar la página
-                setTimeout(() => {
-                    location.reload();
-                }, 1000);
-            }
-        }
-
-        function editarRegistroNI(index) {
-            alert('Editando nuevo ingreso #' + index);
-            // Aquí abrirías el modal con los datos del registro de nuevo ingreso
-        }
-
-        function eliminarRegistroNI(index) {
-            if (confirm('¿Eliminar este registro de nuevo ingreso?')) {
-                // Aquí eliminarías el registro del almacenamiento local
-                alert('Registro eliminado');
-                // Recargar la página
-                setTimeout(() => {
-                    location.reload();
-                }, 500);
-            }
-        }
-
-        // =====================================================================
-        // OTRAS FUNCIONES
-        // =====================================================================
-
-        function editarBeneficiario(id) {
-            console.log('Editando beneficiario con ID:', id);
-            abrirModalEditar(id);
-        }
-
-        function eliminarBeneficiario(cedula, nombre) {
-            if (confirm(`¿Está seguro de que desea eliminar al beneficiario "${nombre}"?`)) {
-                // Crear formulario para eliminar
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = '';
-                
-                const actionInput = document.createElement('input');
-                actionInput.type = 'hidden';
-                actionInput.name = 'action';
-                actionInput.value = 'delete';
-                
-                const cedulaInput = document.createElement('input');
-                cedulaInput.type = 'hidden';
-                cedulaInput.name = 'cedula_beneficiario';
-                cedulaInput.value = cedula;
-                
-                form.appendChild(actionInput);
-                form.appendChild(cedulaInput);
-                document.body.appendChild(form);
-                form.submit();
-            }
-        }
 
         function cambiarTab(tabName) {
             console.log('Cambiando a pestaña:', tabName);
@@ -2462,11 +2186,1078 @@ $totalNuevosIngresos = count($nuevosIngresos);
                 setTimeout(() => {
                     try {
                         tablaBeneficiarios.columns.adjust();
-                        console.log('Tabla redibujada');
                     } catch (error) {
                         console.error('Error al redibujar tabla:', error);
                     }
                 }, 100);
+            }
+            
+            if (tabName === 'nuevos-ingresos' && tablaNuevosIngresos) {
+                setTimeout(() => {
+                    try {
+                        tablaNuevosIngresos.columns.adjust();
+                    } catch (error) {
+                        console.error('Error al redibujar tabla nuevos ingresos:', error);
+                    }
+                }, 100);
+            }
+        }
+
+        function abrirModalNuevoBeneficiario() {
+            console.log('Abriendo modal para nuevo beneficiario online');
+            
+            // Resetear formulario
+            document.getElementById('formNuevoBeneficiario').reset();
+            
+            // Configurar selects
+            document.getElementById('parroquia').innerHTML = '<option value="">Primero seleccione municipio</option>';
+            document.getElementById('parroquia').disabled = true;
+            document.getElementById('sector').innerHTML = '<option value="">Primero seleccione parroquia</option>';
+            document.getElementById('sector').disabled = true;
+            
+            // Configurar el modal
+            document.getElementById('modal-titulo').textContent = 'Nuevo Beneficiario';
+            document.getElementById('btn-guardar-texto').textContent = 'Guardar Beneficiario';
+            document.getElementById('form-action').value = 'create';
+            document.getElementById('form-tipo').value = 'online';
+            
+            // Ocultar condición femenina por defecto
+            document.getElementById('condicion_femenina_nuevo').classList.remove('show');
+            document.getElementById('subcondicion_lactante_nuevo').classList.remove('show');
+            document.getElementById('subcondicion_gestante_nuevo').classList.remove('show');
+            document.getElementById('condicion_nada_nuevo').checked = true;
+            
+            // Mostrar modal
+            document.getElementById('nuevoBeneficiarioModal').style.display = 'flex';
+            
+            // Calcular edad por defecto (5 años atrás)
+            const hoy = new Date();
+            const fechaHace5Anos = new Date(hoy.getFullYear() - 5, hoy.getMonth(), hoy.getDate());
+            document.getElementById('fecha_nacimiento').value = fechaHace5Anos.toISOString().split('T')[0];
+            calcularEdadBeneficiario();
+        }
+        
+        function cerrarModal() {
+            console.log('Cerrando modal nuevo beneficiario');
+            document.getElementById('nuevoBeneficiarioModal').style.display = 'none';
+        }
+
+        function abrirModalNuevoIngreso() {
+            console.log('Abriendo modal para nuevo ingreso');
+            
+            // Resetear formulario
+            document.getElementById('formNuevoIngreso').reset();
+            
+            // Resetear selects
+            document.getElementById('ni_parroquia').innerHTML = '<option value="">Primero seleccione municipio</option>';
+            document.getElementById('ni_parroquia').disabled = true;
+            document.getElementById('ni_sector').innerHTML = '<option value="">Primero seleccione parroquia</option>';
+            document.getElementById('ni_sector').disabled = true;
+            
+            // Resetear condición femenina
+            document.getElementById('ni_condicion_femenina').classList.remove('show');
+            document.getElementById('ni_subcondicion_lactante').classList.remove('show');
+            document.getElementById('ni_subcondicion_gestante').classList.remove('show');
+            document.getElementById('ni_condicion_nada').checked = true;
+            
+            // Mostrar modal
+            document.getElementById('nuevoIngresoModal').style.display = 'flex';
+            
+            // Calcular edad por defecto (5 años atrás)
+            const hoy = new Date();
+            const fechaHace5Anos = new Date(hoy.getFullYear() - 5, hoy.getMonth(), hoy.getDate());
+            document.getElementById('ni_fecha_nacimiento').value = fechaHace5Anos.toISOString().split('T')[0];
+            calcularEdadNuevoIngreso();
+            
+            // Enfocar el primer campo
+            setTimeout(() => {
+                document.getElementById('ni_municipio').focus();
+            }, 100);
+        }
+
+        function cerrarModalNuevoIngreso() {
+            console.log('Cerrando modal nuevo ingreso');
+            document.getElementById('nuevoIngresoModal').style.display = 'none';
+        }
+
+        // =====================================================================
+        // FUNCIONES PARA CONDICIÓN FEMENINA - NUEVO BENEFICIARIO
+        // =====================================================================
+
+        function mostrarCondicionFemeninaNuevo() {
+            const genero = document.getElementById('genero').value;
+            const condicionFemenina = document.getElementById('condicion_femenina_nuevo');
+            
+            if (genero === 'F') {
+                condicionFemenina.classList.add('show');
+            } else {
+                condicionFemenina.classList.remove('show');
+                // Ocultar subcondiciones
+                document.getElementById('subcondicion_lactante_nuevo').classList.remove('show');
+                document.getElementById('subcondicion_gestante_nuevo').classList.remove('show');
+                // Resetear radio buttons
+                document.getElementById('condicion_nada_nuevo').checked = true;
+            }
+        }
+
+        function mostrarSubcondicionNuevo() {
+            const condicionLactante = document.getElementById('subcondicion_lactante_nuevo');
+            const condicionGestante = document.getElementById('subcondicion_gestante_nuevo');
+            
+            // Ocultar ambas primero
+            condicionLactante.classList.remove('show');
+            condicionGestante.classList.remove('show');
+            
+            // Mostrar la correspondiente
+            if (document.getElementById('condicion_lactante_nuevo').checked) {
+                condicionLactante.classList.add('show');
+            } else if (document.getElementById('condicion_gestante_nuevo').checked) {
+                condicionGestante.classList.add('show');
+            }
+        }
+
+        // =====================================================================
+        // FUNCIONES PARA CONDICIÓN FEMENINA - NUEVO INGRESO
+        // =====================================================================
+
+        function mostrarCondicionFemeninaNI() {
+            const genero = document.getElementById('ni_genero').value;
+            const condicionFemenina = document.getElementById('ni_condicion_femenina');
+            
+            if (genero === 'F') {
+                condicionFemenina.classList.add('show');
+            } else {
+                condicionFemenina.classList.remove('show');
+                // Ocultar subcondiciones
+                document.getElementById('ni_subcondicion_lactante').classList.remove('show');
+                document.getElementById('ni_subcondicion_gestante').classList.remove('show');
+                // Resetear radio buttons
+                document.getElementById('ni_condicion_nada').checked = true;
+            }
+        }
+
+        function mostrarSubcondicionNI() {
+            const condicionLactante = document.getElementById('ni_subcondicion_lactante');
+            const condicionGestante = document.getElementById('ni_subcondicion_gestante');
+            
+            // Ocultar ambas primero
+            condicionLactante.classList.remove('show');
+            condicionGestante.classList.remove('show');
+            
+            // Mostrar la correspondiente
+            if (document.getElementById('ni_condicion_lactante').checked) {
+                condicionLactante.classList.add('show');
+            } else if (document.getElementById('ni_condicion_gestante').checked) {
+                condicionGestante.classList.add('show');
+            }
+        }
+
+        // =====================================================================
+        // FUNCIONES PARA EDICIÓN DE BENEFICIARIOS
+        // =====================================================================
+
+        function editarBeneficiario(beneficiarioId, button) {
+            console.log('Editando beneficiario con ID:', beneficiarioId);
+            
+            // Encontrar la fila del beneficiario
+            const fila = $(button).closest('tr');
+            
+            // Obtener todos los datos de la fila
+            const datos = {
+                id: fila.data('id'),
+                peso: fila.data('peso'),
+                talla: fila.data('talla'),
+                cbi: fila.data('cbi'),
+                imc: fila.data('imc'),
+                municipio: fila.data('municipio'),
+                parroquia: fila.data('parroquia'),
+                sector: fila.data('sector'),
+                caso: fila.data('caso'),
+                nombre: fila.data('nombre'),
+                apellido: fila.data('apellido'),
+                cedula: fila.data('cedula'),
+                edad: fila.data('edad'),
+                genero: fila.data('genero'),
+                fechaNacimiento: fila.data('fecha-nacimiento'),
+                condicionFemenina: fila.data('condicion-femenina'),
+                fechaNacimientoBebe: fila.data('fecha-nacimiento-bebe'),
+                semanasGestacion: fila.data('semanas-gestacion'),
+                nombreRepresentante: fila.data('nombre-representante'),
+                apellidoRepresentante: fila.data('apellido-representante'),
+                cedulaRepresentante: fila.data('cedula-representante'),
+                telefonoRepresentante: fila.data('telefono-representante'),
+                nombreClap: fila.data('nombre-clap'),
+                nombreComuna: fila.data('nombre-comuna')
+            };
+            
+            console.log('Datos del beneficiario:', datos);
+            
+            // Llenar el formulario de edición
+            document.getElementById('beneficiario_id').value = datos.id;
+            
+            // Ubicación
+            document.getElementById('editar_municipio').value = datos.municipio || '';
+            
+            // Cargar parroquias para el municipio seleccionado
+            cargarParroquiasEditar(datos.municipio, datos.parroquia);
+            
+            // Sector se cargará automáticamente después de parroquia
+            setTimeout(() => {
+                document.getElementById('editar_sector').value = datos.sector || '';
+            }, 100);
+            
+            document.getElementById('editar_nombre_clap').value = datos.nombreClap || '';
+            document.getElementById('editar_nombre_comuna').value = datos.nombreComuna || '';
+            
+            // Datos del representante
+            document.getElementById('editar_representante_nombre').value = datos.nombreRepresentante || '';
+            document.getElementById('editar_representante_apellido').value = datos.apellidoRepresentante || '';
+            document.getElementById('editar_representante_cedula').value = datos.cedulaRepresentante || '';
+            document.getElementById('editar_representante_telefono').value = datos.telefonoRepresentante || '';
+            
+            // Datos del beneficiario
+            document.getElementById('editar_nombres').value = datos.nombre || '';
+            document.getElementById('editar_apellidos').value = datos.apellido || '';
+            document.getElementById('editar_cedula_beneficiario').value = datos.cedula || '';
+            document.getElementById('editar_fecha_nacimiento').value = datos.fechaNacimiento || '';
+            document.getElementById('editar_genero').value = datos.genero || '';
+            document.getElementById('editar_edad').value = datos.edad || '';
+            
+            // Manejar condición femenina
+            mostrarCondicionFemeninaEditar(datos.genero, datos.condicionFemenina, datos.fechaNacimientoBebe, datos.semanasGestacion);
+            
+            // Antropometría
+            document.getElementById('editar_cbi_mm').value = datos.cbi || '';
+            document.getElementById('editar_peso_kg').value = datos.peso || '';
+            document.getElementById('editar_talla_cm').value = datos.talla || '';
+            document.getElementById('editar_imc').value = datos.imc || '';
+            
+            // Situación (caso)
+            if (datos.caso === '1') {
+                document.getElementById('editar_caso_1').checked = true;
+            } else if (datos.caso === '2') {
+                document.getElementById('editar_caso_2').checked = true;
+            }
+            
+            // Mostrar el modal de edición
+            document.getElementById('editarBeneficiarioModal').style.display = 'flex';
+        }
+
+        function mostrarCondicionFemeninaEditar(genero = '', condicionFemenina = '', fechaBebe = '', semanasGestacion = '') {
+            const condicionFemeninaDiv = document.getElementById('editar_condicion_femenina');
+            
+            if (genero === 'F') {
+                condicionFemeninaDiv.classList.add('show');
+                
+                // Configurar la condición femenina seleccionada
+                if (condicionFemenina === 'lactante') {
+                    document.getElementById('editar_condicion_lactante').checked = true;
+                    document.getElementById('editar_subcondicion_lactante').classList.add('show');
+                    document.getElementById('editar_fecha_nacimiento_bebe').value = fechaBebe || '';
+                } else if (condicionFemenina === 'gestante') {
+                    document.getElementById('editar_condicion_gestante').checked = true;
+                    document.getElementById('editar_subcondicion_gestante').classList.add('show');
+                    document.getElementById('editar_semanas_gestacion').value = semanasGestacion || '';
+                } else {
+                    document.getElementById('editar_condicion_nada').checked = true;
+                }
+            } else {
+                condicionFemeninaDiv.classList.remove('show');
+                // Ocultar subcondiciones
+                document.getElementById('editar_subcondicion_lactante').classList.remove('show');
+                document.getElementById('editar_subcondicion_gestante').classList.remove('show');
+                // Resetear radio buttons
+                document.getElementById('editar_condicion_nada').checked = true;
+            }
+        }
+
+        function mostrarSubcondicionEditar() {
+            const condicionLactante = document.getElementById('editar_subcondicion_lactante');
+            const condicionGestante = document.getElementById('editar_subcondicion_gestante');
+            
+            // Ocultar ambas primero
+            condicionLactante.classList.remove('show');
+            condicionGestante.classList.remove('show');
+            
+            // Mostrar la correspondiente
+            if (document.getElementById('editar_condicion_lactante').checked) {
+                condicionLactante.classList.add('show');
+            } else if (document.getElementById('editar_condicion_gestante').checked) {
+                condicionGestante.classList.add('show');
+            }
+        }
+
+        function cerrarModalEditar() {
+            console.log('Cerrando modal editar');
+            document.getElementById('editarBeneficiarioModal').style.display = 'none';
+        }
+
+        function cargarParroquiasEditar(municipioSeleccionado, parroquiaSeleccionada = '') {
+            const parroquiaSelect = document.getElementById('editar_parroquia');
+            const sectorSelect = document.getElementById('editar_sector');
+            
+            // Limpiar y resetear parroquia
+            parroquiaSelect.innerHTML = '<option value="">Seleccionar parroquia</option>';
+            parroquiaSelect.disabled = !municipioSeleccionado;
+            
+            // Limpiar sector
+            sectorSelect.innerHTML = '<option value="">Seleccionar sector</option>';
+            sectorSelect.disabled = true;
+            
+            // Si hay municipio seleccionado, cargar sus parroquias
+            if (municipioSeleccionado && parroquiasData[municipioSeleccionado]) {
+                const parroquias = parroquiasData[municipioSeleccionado];
+                
+                // Ordenar alfabéticamente
+                parroquias.sort().forEach(function(parroquia) {
+                    const option = document.createElement('option');
+                    option.value = parroquia;
+                    option.textContent = parroquia;
+                    if (parroquia === parroquiaSeleccionada) {
+                        option.selected = true;
+                    }
+                    parroquiaSelect.appendChild(option);
+                });
+                
+                // Habilitar el select de parroquias
+                parroquiaSelect.disabled = false;
+                
+                // Si hay parroquia seleccionada, cargar sus sectores
+                if (parroquiaSeleccionada) {
+                    cargarSectoresEditar(parroquiaSeleccionada);
+                }
+            }
+        }
+
+        function cargarSectoresEditar(parroquiaSeleccionada, sectorSeleccionado = '') {
+            const sectorSelect = document.getElementById('editar_sector');
+            
+            // Limpiar y resetear sector
+            sectorSelect.innerHTML = '<option value="">Seleccionar sector</option>';
+            sectorSelect.disabled = !parroquiaSeleccionada;
+            
+            // Si hay parroquia seleccionada, cargar sus sectores
+            if (parroquiaSeleccionada && sectoresData[parroquiaSeleccionada]) {
+                const sectores = sectoresData[parroquiaSeleccionada];
+                
+                // Ordenar alfabéticamente
+                sectores.sort().forEach(function(sector) {
+                    const option = document.createElement('option');
+                    option.value = sector;
+                    option.textContent = sector;
+                    if (sector === sectorSeleccionado) {
+                        option.selected = true;
+                    }
+                    sectorSelect.appendChild(option);
+                });
+                
+                // Habilitar el select de sectores
+                sectorSelect.disabled = false;
+            }
+        }
+
+        // Configurar eventos para los selects de edición
+        document.addEventListener('DOMContentLoaded', function() {
+            // Municipio editar
+            const editarMunicipio = document.getElementById('editar_municipio');
+            if (editarMunicipio) {
+                editarMunicipio.addEventListener('change', function() {
+                    cargarParroquiasEditar(this.value);
+                });
+            }
+            
+            // Parroquia editar
+            const editarParroquia = document.getElementById('editar_parroquia');
+            if (editarParroquia) {
+                editarParroquia.addEventListener('change', function() {
+                    cargarSectoresEditar(this.value);
+                });
+            }
+            
+            // Cálculo de IMC en edición
+            const editarPeso = document.getElementById('editar_peso_kg');
+            const editarTalla = document.getElementById('editar_talla_cm');
+            
+            if (editarPeso && editarTalla) {
+                editarPeso.addEventListener('input', calcularIMCEditar);
+                editarTalla.addEventListener('input', calcularIMCEditar);
+            }
+            
+            // Cálculo de edad en edición
+            const editarFechaNacimiento = document.getElementById('editar_fecha_nacimiento');
+            if (editarFechaNacimiento) {
+                editarFechaNacimiento.addEventListener('change', calcularEdadEditar);
+            }
+            
+            // Género en edición
+            const editarGenero = document.getElementById('editar_genero');
+            if (editarGenero) {
+                editarGenero.addEventListener('change', function() {
+                    mostrarCondicionFemeninaEditar(this.value);
+                });
+            }
+            
+            // Radio buttons para condición femenina en edición
+            const condicionLactanteEditar = document.getElementById('editar_condicion_lactante');
+            const condicionGestanteEditar = document.getElementById('editar_condicion_gestante');
+            const condicionNadaEditar = document.getElementById('editar_condicion_nada');
+            
+            if (condicionLactanteEditar) {
+                condicionLactanteEditar.addEventListener('change', mostrarSubcondicionEditar);
+            }
+            if (condicionGestanteEditar) {
+                condicionGestanteEditar.addEventListener('change', mostrarSubcondicionEditar);
+            }
+            if (condicionNadaEditar) {
+                condicionNadaEditar.addEventListener('change', mostrarSubcondicionEditar);
+            }
+        });
+
+        function calcularIMCEditar() {
+            const peso = parseFloat(document.getElementById('editar_peso_kg').value);
+            const talla = parseFloat(document.getElementById('editar_talla_cm').value);
+            
+            if (peso && talla && talla > 0) {
+                // Convertir talla de cm a m
+                const tallaMetros = talla / 100;
+                const imc = peso / (tallaMetros * tallaMetros);
+                document.getElementById('editar_imc').value = imc.toFixed(2);
+            } else {
+                document.getElementById('editar_imc').value = '';
+            }
+        }
+
+        function calcularEdadEditar() {
+            const fechaNacimiento = document.getElementById('editar_fecha_nacimiento').value;
+            if (!fechaNacimiento) return;
+            
+            const nacimiento = new Date(fechaNacimiento);
+            const hoy = new Date();
+            
+            let edad = hoy.getFullYear() - nacimiento.getFullYear();
+            const mes = hoy.getMonth() - nacimiento.getMonth();
+            
+            if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+                edad--;
+            }
+            
+            document.getElementById('editar_edad').value = edad;
+        }
+
+        // =====================================================================
+        // FUNCIONES DE CÁLCULO
+        // =====================================================================
+
+        function calcularEdadBeneficiario() {
+            const fechaNacimiento = document.getElementById('fecha_nacimiento').value;
+            if (!fechaNacimiento) return;
+            
+            const nacimiento = new Date(fechaNacimiento);
+            const hoy = new Date();
+            
+            let edad = hoy.getFullYear() - nacimiento.getFullYear();
+            const mes = hoy.getMonth() - nacimiento.getMonth();
+            
+            if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+                edad--;
+            }
+            
+            document.getElementById('edad').value = edad;
+            
+            // Calcular IMC automáticamente
+            calcularIMCBeneficiario();
+        }
+
+        function calcularEdadNuevoIngreso() {
+            const fechaNacimiento = document.getElementById('ni_fecha_nacimiento').value;
+            if (!fechaNacimiento) return;
+            
+            const nacimiento = new Date(fechaNacimiento);
+            const hoy = new Date();
+            
+            let edad = hoy.getFullYear() - nacimiento.getFullYear();
+            const mes = hoy.getMonth() - nacimiento.getMonth();
+            
+            if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+                edad--;
+            }
+            
+            document.getElementById('ni_edad').value = edad + ' años';
+            
+            // Calcular IMC automáticamente
+            calcularIMCNuevoIngreso();
+        }
+
+        function calcularIMCBeneficiario() {
+            const peso = parseFloat(document.getElementById('peso_kg').value);
+            const talla = parseFloat(document.getElementById('talla_cm').value);
+            
+            if (peso && talla && talla > 0) {
+                // Convertir talla de cm a m
+                const tallaMetros = talla / 100;
+                const imc = peso / (tallaMetros * tallaMetros);
+                document.getElementById('imc').value = imc.toFixed(2);
+            } else {
+                document.getElementById('imc').value = '';
+            }
+        }
+
+        function calcularIMCNuevoIngreso() {
+            const peso = parseFloat(document.getElementById('ni_peso_kg').value);
+            const talla = parseFloat(document.getElementById('ni_talla_cm').value);
+            
+            if (peso && talla && talla > 0) {
+                // Convertir talla de cm a m
+                const tallaMetros = talla / 100;
+                const imc = peso / (tallaMetros * tallaMetros);
+                document.getElementById('ni_imc').value = imc.toFixed(2);
+            } else {
+                document.getElementById('ni_imc').value = '';
+            }
+        }
+
+        // =====================================================================
+        // FUNCIONES PARA FILTROS DEPENDIENTES EN MODALES
+        // =====================================================================
+
+        function cargarParroquias(selectMunicipioId, selectParroquiaId) {
+            const municipioSelect = document.getElementById(selectMunicipioId);
+            const parroquiaSelect = document.getElementById(selectParroquiaId);
+            
+            if (!municipioSelect || !parroquiaSelect) return;
+            
+            const municipioSeleccionado = municipioSelect.value;
+            
+            // Limpiar y resetear parroquia
+            parroquiaSelect.innerHTML = '<option value="">Seleccionar parroquia</option>';
+            parroquiaSelect.disabled = !municipioSeleccionado;
+            
+            // Si hay municipio seleccionado, cargar sus parroquias
+            if (municipioSeleccionado && parroquiasData[municipioSeleccionado]) {
+                const parroquias = parroquiasData[municipioSeleccionado];
+                
+                // Ordenar alfabéticamente
+                parroquias.sort().forEach(function(parroquia) {
+                    const option = document.createElement('option');
+                    option.value = parroquia;
+                    option.textContent = parroquia;
+                    parroquiaSelect.appendChild(option);
+                });
+                
+                // Habilitar el select de parroquias
+                parroquiaSelect.disabled = false;
+            }
+            
+            // Resetear sector
+            if (selectParroquiaId === 'parroquia') {
+                cargarSectores('parroquia', 'sector');
+            }
+        }
+
+        function cargarSectores(selectParroquiaId, selectSectorId) {
+            const parroquiaSelect = document.getElementById(selectParroquiaId);
+            const sectorSelect = document.getElementById(selectSectorId);
+            
+            if (!parroquiaSelect || !sectorSelect) return;
+            
+            const parroquiaSeleccionada = parroquiaSelect.value;
+            
+            // Limpiar y resetear sector
+            sectorSelect.innerHTML = '<option value="">Seleccionar sector</option>';
+            sectorSelect.disabled = !parroquiaSeleccionada;
+            
+            // Si hay parroquia seleccionada, cargar sus sectores
+            if (parroquiaSeleccionada && sectoresData[parroquiaSeleccionada]) {
+                const sectores = sectoresData[parroquiaSeleccionada];
+                
+                // Ordenar alfabéticamente
+                sectores.sort().forEach(function(sector) {
+                    const option = document.createElement('option');
+                    option.value = sector;
+                    option.textContent = sector;
+                    sectorSelect.appendChild(option);
+                });
+                
+                // Habilitar el select de sectores
+                sectorSelect.disabled = false;
+            }
+        }
+
+        function cargarParroquiasNuevoIngreso() {
+            cargarParroquias('ni_municipio', 'ni_parroquia');
+        }
+
+        function cargarSectoresNuevoIngreso() {
+            cargarSectores('ni_parroquia', 'ni_sector');
+        }
+
+        // =====================================================================
+        // FUNCIONES PARA FILTROS DEPENDIENTES EN LOS FILTROS DE BÚSQUEDA
+        // =====================================================================
+
+        function cargarParroquiasFiltro() {
+            const municipioSeleccionado = $('#filtro-municipio').val();
+            const parroquiaSelect = $('#filtro-parroquia');
+            const sectorSelect = $('#filtro-sector');
+            
+            // Limpiar parroquia
+            parroquiaSelect.html('<option value="">Todas las parroquias</option>');
+            parroquiaSelect.prop('disabled', !municipioSeleccionado);
+            
+            // Limpiar sector
+            sectorSelect.html('<option value="">Todos los sectores</option>');
+            sectorSelect.prop('disabled', true);
+            
+            // Si se seleccionó un municipio, cargar sus parroquias
+            if (municipioSeleccionado && parroquiasData[municipioSeleccionado]) {
+                const parroquias = parroquiasData[municipioSeleccionado];
+                
+                // Ordenar alfabéticamente
+                parroquias.sort().forEach(function(parroquia) {
+                    parroquiaSelect.append($('<option>', {
+                        value: parroquia,
+                        text: parroquia
+                    }));
+                });
+                
+                // Habilitar parroquia
+                parroquiaSelect.prop('disabled', false);
+            }
+            
+            // Aplicar filtros si hay tabla
+            if (tablaBeneficiarios) {
+                aplicarFiltros();
+            }
+        }
+
+        function cargarSectoresFiltro() {
+            const municipioSeleccionado = $('#filtro-municipio').val();
+            const parroquiaSeleccionada = $('#filtro-parroquia').val();
+            const sectorSelect = $('#filtro-sector');
+            
+            // Limpiar sector
+            sectorSelect.html('<option value="">Todos los sectores</option>');
+            sectorSelect.prop('disabled', !parroquiaSeleccionada);
+            
+            // Si se seleccionó una parroquia, cargar sus sectores
+            if (parroquiaSeleccionada && sectoresData[parroquiaSeleccionada]) {
+                const sectores = sectoresData[parroquiaSeleccionada];
+                
+                // Ordenar alfabéticamente
+                sectores.sort().forEach(function(sector) {
+                    sectorSelect.append($('<option>', {
+                        value: sector,
+                        text: sector
+                    }));
+                });
+                
+                // Habilitar sector
+                sectorSelect.prop('disabled', false);
+            }
+            
+            // Aplicar filtros si hay tabla
+            if (tablaBeneficiarios) {
+                aplicarFiltros();
+            }
+        }
+
+        // =====================================================================
+        // FUNCIONES DE ELIMINACIÓN
+        // =====================================================================
+
+        function eliminarBeneficiario(cedula, nombre) {
+            if (confirm(`¿Está seguro de que desea eliminar al beneficiario "${nombre}" (${cedula})?\n\nEsta acción marcará al beneficiario como "inactivo".`)) {
+                // Crear formulario dinámico para enviar la solicitud
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '';
+                
+                const inputAction = document.createElement('input');
+                inputAction.type = 'hidden';
+                inputAction.name = 'action';
+                inputAction.value = 'delete';
+                
+                const inputCedula = document.createElement('input');
+                inputCedula.type = 'hidden';
+                inputCedula.name = 'cedula_beneficiario';
+                inputCedula.value = cedula;
+                
+                form.appendChild(inputAction);
+                form.appendChild(inputCedula);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function incorporarTodo() {
+            if (confirm('¿Está seguro de que desea incorporar todos los nuevos ingresos a la base de datos principal?')) {
+                // Crear formulario dinámico para enviar la solicitud
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '';
+                
+                const inputAction = document.createElement('input');
+                inputAction.type = 'hidden';
+                inputAction.name = 'action';
+                inputAction.value = 'incorporar_todos';
+                
+                form.appendChild(inputAction);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function incorporarRegistro(cedula) {
+            if (confirm('¿Incorporar este registro a la base de datos principal?')) {
+                // Crear formulario dinámico para enviar la solicitud
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '';
+                
+                const inputAction = document.createElement('input');
+                inputAction.type = 'hidden';
+                inputAction.name = 'action';
+                inputAction.value = 'incorporar';
+                
+                const inputCedula = document.createElement('input');
+                inputCedula.type = 'hidden';
+                inputCedula.name = 'cedula_beneficiario';
+                inputCedula.value = cedula;
+                
+                form.appendChild(inputAction);
+                form.appendChild(inputCedula);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function editarRegistroNI(cedula) {
+            alert('Editando nuevo ingreso con cédula: ' + cedula + '\n\nEsta funcionalidad se implementará en una futura versión.');
+        }
+
+        function eliminarRegistroNI(cedula) {
+            if (confirm('¿Eliminar este registro de nuevo ingreso?\n\nEsta acción eliminará permanentemente el registro.')) {
+                // Crear formulario dinámico para enviar la solicitud
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '';
+                
+                const inputAction = document.createElement('input');
+                inputAction.type = 'hidden';
+                inputAction.name = 'action';
+                inputAction.value = 'delete_nuevo_ingreso';
+                
+                const inputCedula = document.createElement('input');
+                inputCedula.type = 'hidden';
+                inputCedula.name = 'cedula_beneficiario';
+                inputCedula.value = cedula;
+                
+                form.appendChild(inputAction);
+                form.appendChild(inputCedula);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        // =====================================================================
+        // FUNCIONES DE EXPORTACIÓN
+        // =====================================================================
+
+        function obtenerFiltrosAplicados() {
+            const filtros = [];
+            const municipio = $('#filtro-municipio').val();
+            const parroquia = $('#filtro-parroquia').val();
+            const sector = $('#filtro-sector').val();
+            const caso = $('#filtro-caso').val();
+            
+            if (municipio) filtros.push('Municipio: ' + municipio);
+            if (parroquia) filtros.push('Parroquia: ' + parroquia);
+            if (sector) filtros.push('Sector: ' + sector);
+            if (caso) filtros.push('Caso: ' + (caso === '1' ? 'Caso 1' : 'Caso 2'));
+            
+            return filtros.length > 0 ? filtros.join(', ') : 'Sin filtros';
+        }
+
+        function exportarConsolidadoExcel() {
+            console.log('Iniciando exportación Excel...');
+            
+            // Obtener valores de los filtros actuales
+            const municipio = $('#filtro-municipio').val() || '';
+            const parroquia = $('#filtro-parroquia').val() || '';
+            const sector = $('#filtro-sector').val() || '';
+            const caso = $('#filtro-caso').val() || '';
+            
+            // Construir URL con los filtros
+            let url = 'exportar_consolidado_excel.php?';
+            let params = [];
+            
+            if (municipio) params.push('municipio=' + encodeURIComponent(municipio));
+            if (parroquia) params.push('parroquia=' + encodeURIComponent(parroquia));
+            if (sector) params.push('sector=' + encodeURIComponent(sector));
+            if (caso) params.push('caso=' + encodeURIComponent(caso));
+            
+            if (params.length > 0) {
+                url += params.join('&');
+            }
+            
+            // Mensaje de confirmación
+            let confirmMsg = '¿Exportar reporte consolidado a Excel?\n\n';
+            confirmMsg += 'Se generará un archivo Excel con todos los datos de beneficiarios activos.\n\n';
+            
+            if (municipio || parroquia || sector || caso) {
+                confirmMsg += 'Filtros activos:\n';
+                if (municipio) confirmMsg += '• Municipio: ' + municipio + '\n';
+                if (parroquia) confirmMsg += '• Parroquia: ' + parroquia + '\n';
+                if (sector) confirmMsg += '• Sector: ' + sector + '\n';
+                if (caso) confirmMsg += '• Caso: ' + (caso === '1' ? 'Caso 1' : 'Caso 2') + '\n';
+            }
+            
+            confirmMsg += '\n¿Desea continuar?';
+            
+            if (confirm(confirmMsg)) {
+                // Mostrar indicador de carga
+                mostrarLoaderExportacion();
+                
+                // Crear un enlace temporal para la descarga
+                const link = document.createElement('a');
+                link.href = url;
+                link.target = '_blank';
+                link.download = 'reporte_consolidado_' + new Date().toISOString().slice(0,10) + '.xls';
+                
+                // Simular clic para iniciar descarga
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Ocultar loader después de 2 segundos
+                setTimeout(() => {
+                    ocultarLoaderExportacion();
+                    
+                    // Mostrar mensaje de éxito
+                    alert('✅ ¡Reporte exportado exitosamente!\n\n' +
+                          'El archivo Excel se está descargando con todos los datos.\n' +
+                          'Nombre del archivo: reporte_consolidado_[fecha].xls');
+                }, 2000);
+            }
+        }
+
+        function generarFormatoPDF() {
+            console.log('Generando formato PDF...');
+            
+            // Obtener valores de los filtros actuales
+            const municipio = $('#filtro-municipio').val() || '';
+            const parroquia = $('#filtro-parroquia').val() || '';
+            const sector = $('#filtro-sector').val() || '';
+            const caso = $('#filtro-caso').val() || '';
+            
+            // Construir URL con los filtros
+            let url = 'generar_formato_pdf.php?';
+            let params = [];
+            
+            if (municipio) params.push('municipio=' + encodeURIComponent(municipio));
+            if (parroquia) params.push('parroquia=' + encodeURIComponent(parroquia));
+            if (sector) params.push('sector=' + encodeURIComponent(sector));
+            if (caso) params.push('caso=' + encodeURIComponent(caso));
+            
+            if (params.length > 0) {
+                url += params.join('&');
+            }
+            
+            // Mensaje de confirmación
+            let confirmMsg = '¿Generar formato para imprimir en PDF?\n\n';
+            confirmMsg += 'Se generará un documento PDF con formato de entrega.\n\n';
+            
+            if (municipio || parroquia || sector || caso) {
+                confirmMsg += 'Filtros activos:\n';
+                if (municipio) confirmMsg += '• Municipio: ' + municipio + '\n';
+                if (parroquia) confirmMsg += '• Parroquia: ' + parroquia + '\n';
+                if (sector) confirmMsg += '• Sector: ' + sector + '\n';
+                if (caso) confirmMsg += '• Caso: ' + (caso === '1' ? 'Caso 1' : 'Caso 2') + '\n';
+            }
+            
+            confirmMsg += '\n¿Desea continuar?';
+            
+            if (confirm(confirmMsg)) {
+                // Mostrar indicador de carga
+                mostrarLoaderPDF();
+                
+                // Abrir la URL en una nueva pestaña
+                window.open(url, '_blank');
+                
+                // Ocultar loader después de 3 segundos
+                setTimeout(() => {
+                    ocultarLoaderPDF();
+                }, 3000);
+            }
+        }
+
+        function mostrarLoaderExportacion() {
+            let loader = document.getElementById('export-loader');
+            if (!loader) {
+                loader = document.createElement('div');
+                loader.id = 'export-loader';
+                loader.className = 'export-loader';
+                loader.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Generando Excel...';
+                document.body.appendChild(loader);
+            }
+        }
+
+        function ocultarLoaderExportacion() {
+            const loader = document.getElementById('export-loader');
+            if (loader) {
+                loader.remove();
+            }
+        }
+
+        function mostrarLoaderPDF() {
+            let loader = document.getElementById('pdf-loader');
+            if (!loader) {
+                loader = document.createElement('div');
+                loader.id = 'pdf-loader';
+                loader.className = 'pdf-loader';
+                loader.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Generando PDF...';
+                document.body.appendChild(loader);
+            }
+        }
+
+        function ocultarLoaderPDF() {
+            const loader = document.getElementById('pdf-loader');
+            if (loader) {
+                loader.remove();
+            }
+        }
+
+        // =====================================================================
+        // FUNCIONES PARA FILTROS DE LA TABLA
+        // =====================================================================
+
+        function aplicarFiltros() {
+            var municipio = $('#filtro-municipio').val();
+            var parroquia = $('#filtro-parroquia').val();
+            var sector = $('#filtro-sector').val();
+            var caso = $('#filtro-caso').val();
+            
+            console.log('Aplicando filtros:', { municipio, parroquia, sector, caso });
+            
+            if (!tablaBeneficiarios) {
+                console.error('La tabla no está inicializada');
+                return;
+            }
+            
+            // Limpiar filtro anterior si existe
+            if (filtroActivo !== null) {
+                $.fn.dataTable.ext.search.pop();
+                filtroActivo = null;
+            }
+            
+            // Crear función de filtrado
+            filtroActivo = function(settings, data, dataIndex) {
+                if (!tablaBeneficiarios) return true;
+                
+                var row = tablaBeneficiarios.row(dataIndex).node();
+                if (!row) return true;
+                
+                var rowMunicipio = $(row).data('municipio');
+                var rowParroquia = $(row).data('parroquia');
+                var rowSector = $(row).data('sector');
+                var rowCaso = $(row).data('caso');
+                
+                // Verificar cada filtro
+                var municipioMatch = !municipio || rowMunicipio === municipio;
+                var parroquiaMatch = !parroquia || rowParroquia === parroquia;
+                var sectorMatch = !sector || rowSector === sector;
+                var casoMatch = !caso || rowCaso == caso; // Usar == para comparación flexible
+                
+                return municipioMatch && parroquiaMatch && sectorMatch && casoMatch;
+            };
+            
+            // Aplicar el filtro
+            $.fn.dataTable.ext.search.push(filtroActivo);
+            
+            // Redibujar la tabla
+            tablaBeneficiarios.draw();
+            
+            // Actualizar UI
+            actualizarUI();
+            actualizarMensajeFiltros();
+            actualizarContador();
+        }
+
+        function limpiarFiltros() {
+            console.log('Limpiando filtros');
+            
+            if (!tablaBeneficiarios) {
+                console.error('La tabla no está inicializada');
+                return;
+            }
+            
+            // Limpiar selects
+            $('#filtro-municipio').val('');
+            $('#filtro-parroquia').val('');
+            $('#filtro-sector').val('');
+            $('#filtro-caso').val('');
+            
+            // Resetear filtros dependientes
+            cargarParroquiasFiltro();
+            
+            // Limpiar filtro de DataTable
+            if (filtroActivo !== null) {
+                $.fn.dataTable.ext.search.pop();
+                filtroActivo = null;
+            }
+            
+            // Limpiar búsqueda de DataTable
+            tablaBeneficiarios.search('');
+            
+            // Redibujar tabla
+            tablaBeneficiarios.draw();
+            
+            // Actualizar UI
+            actualizarUI();
+            $('#mensaje-filtros').removeClass('show');
+            actualizarContador();
+        }
+
+        function actualizarUI() {
+            // Quitar clase activa de todos
+            $('#filtro-municipio, #filtro-parroquia, #filtro-sector, #filtro-caso').removeClass('filter-active');
+            
+            // Agregar clase activa a los que tienen valor
+            if ($('#filtro-municipio').val()) $('#filtro-municipio').addClass('filter-active');
+            if ($('#filtro-parroquia').val()) $('#filtro-parroquia').addClass('filter-active');
+            if ($('#filtro-sector').val()) $('#filtro-sector').addClass('filter-active');
+            if ($('#filtro-caso').val()) $('#filtro-caso').addClass('filter-active');
+        }
+
+        function actualizarMensajeFiltros() {
+            const filtrosTexto = obtenerFiltrosAplicados();
+            const mensajeFiltros = $('#mensaje-filtros');
+            const textoFiltros = $('#texto-filtros');
+            
+            textoFiltros.text(filtrosTexto);
+            
+            if (filtrosTexto !== 'Sin filtros') {
+                mensajeFiltros.addClass('show');
+            } else {
+                mensajeFiltros.removeClass('show');
+            }
+        }
+
+        function actualizarContador() {
+            if (!tablaBeneficiarios) {
+                console.warn('La tabla no está inicializada en actualizarContador');
+                // Mostrar el total de PHP como fallback
+                $('#total-registros').text(<?php echo e($totalBeneficiarios); ?>);
+                return;
+            }
+            
+            try {
+                var totalFiltrado = tablaBeneficiarios.rows({ search: 'applied' }).count();
+                $('#total-registros').text(totalFiltrado);
+            } catch (error) {
+                console.warn('Error en actualizarContador:', error);
+                // Usar el contador de PHP como respaldo
+                $('#total-registros').text(<?php echo e($totalBeneficiarios); ?>);
             }
         }
 
@@ -2474,35 +3265,275 @@ $totalNuevosIngresos = count($nuevosIngresos);
         // INICIALIZACIÓN
         // =====================================================================
 
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM completamente cargado');
+        $(document).ready(function() {
+            console.log('DOM cargado, inicializando DataTables...');
+            
+            // Inicializar DataTable de beneficiarios si hay datos
+            if ($('#tabla-beneficiarios').length && $('#tabla-beneficiarios tbody tr').length > 0) {
+                console.log('Tabla beneficiarios encontrada, inicializando...');
+                
+                // Configuración simplificada de DataTables
+                tablaBeneficiarios = $('#tabla-beneficiarios').DataTable({
+                    responsive: false,
+                    scrollX: false,
+                    autoWidth: false,
+                    destroy: true,
+                    paging: true,
+                    searching: true,
+                    ordering: true,
+                    info: true,
+                    lengthChange: true,
+                    language: {
+                        "decimal": ",",
+                        "emptyTable": "No hay datos disponibles",
+                        "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                        "infoEmpty": "Mostrando 0 a 0 de 0 registros",
+                        "infoFiltered": "(filtrado de _MAX_ registros Totales)",
+                        "infoPostFix": "",
+                        "thousands": ".",
+                        "lengthMenu": "Mostrar _MENU_ registros",
+                        "loadingRecords": "Cargando...",
+                        "processing": "Procesando...",
+                        "search": "Buscar:",
+                        "zeroRecords": "No se encontraron registros coincidentes",
+                        "paginate": {
+                            "first": "Primero",
+                            "last": "Último",
+                            "next": "Siguiente",
+                            "previous": "Anterior"
+                        }
+                    },
+                    pageLength: 10,
+                    lengthMenu: [5, 10, 25, 50],
+                    order: [[0, 'asc']],
+                    dom: 'Bfrtip',
+                    buttons: [
+                    ],
+                    columnDefs: [
+                        { 
+                            targets: [5], // Columna de acciones
+                            orderable: false,
+                            searchable: false
+                        },
+                        { width: "15%", targets: 0 },
+                        { width: "18%", targets: 1 },
+                        { width: "20%", targets: 2 },
+                        { width: "20%", targets: 3 },
+                        { width: "12%", targets: 4 },
+                        { width: "15%", targets: 5 }
+                    ],
+                    initComplete: function() {
+                        console.log('DataTable de beneficiarios inicializado correctamente');
+                        this.api().columns.adjust();
+                    },
+                    drawCallback: function() {
+                        actualizarContador();
+                    }
+                });
+            } else {
+                console.log('No hay datos para inicializar DataTable de beneficiarios');
+            }
+            
+            // Inicializar DataTable de nuevos ingresos si hay datos
+            if ($('#tabla-nuevos-ingresos').length && $('#tabla-nuevos-ingresos tbody tr').length > 0) {
+                tablaNuevosIngresos = $('#tabla-nuevos-ingresos').DataTable({
+                    responsive: false,
+                    scrollX: false,
+                    autoWidth: false,
+                    language: {
+                        "decimal": ",",
+                        "emptyTable": "No hay datos disponibles",
+                        "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                        "infoEmpty": "Mostrando 0 a 0 de 0 registros",
+                        "infoFiltered": "(filtrado de _MAX_ registros Totales)",
+                        "infoPostFix": "",
+                        "thousands": ".",
+                        "lengthMenu": "Mostrar _MENU_ registros",
+                        "loadingRecords": "Cargando...",
+                        "processing": "Procesando...",
+                        "search": "Buscar:",
+                        "zeroRecords": "No se encontraron registros coincidentes",
+                        "paginate": {
+                            "first": "Primero",
+                            "last": "Último",
+                            "next": "Siguiente",
+                            "previous": "Anterior"
+                        }
+                    },
+                    pageLength: 10,
+                    lengthMenu: [5, 10, 25, 50],
+                    order: [[0, 'desc']],
+                    columnDefs: [
+                        { 
+                            targets: [4], // Columna de acciones
+                            orderable: false,
+                            searchable: false
+                        }
+                    ]
+                });
+            }
+            
+            // Configurar eventos para los filtros dependientes en modales
+            $('#municipio').on('change', function() {
+                cargarParroquias('municipio', 'parroquia');
+            });
+            
+            $('#parroquia').on('change', function() {
+                cargarSectores('parroquia', 'sector');
+            });
+            
+            // Configurar eventos para los filtros de búsqueda
+            $('#filtro-municipio').on('change', function() {
+                cargarParroquiasFiltro();
+            });
+            
+            $('#filtro-parroquia').on('change', function() {
+                cargarSectoresFiltro();
+            });
+            
+            // Configurar eventos para cálculo automático
+            $('#fecha_nacimiento').on('change', calcularEdadBeneficiario);
+            $('#peso_kg, #talla_cm').on('input', calcularIMCBeneficiario);
+            
+            $('#ni_fecha_nacimiento').on('change', calcularEdadNuevoIngreso);
+            $('#ni_peso_kg, #ni_talla_cm').on('input', calcularIMCNuevoIngreso);
+            
+            // Configurar eventos para condición femenina en nuevo beneficiario
+            $('#genero').on('change', mostrarCondicionFemeninaNuevo);
+            $('#condicion_lactante_nuevo, #condicion_gestante_nuevo, #condicion_nada_nuevo').on('change', mostrarSubcondicionNuevo);
+            
+            // Configurar eventos para condición femenina en nuevo ingreso
+            $('#ni_genero').on('change', mostrarCondicionFemeninaNI);
+            $('#ni_condicion_lactante, #ni_condicion_gestante, #ni_condicion_nada').on('change', mostrarSubcondicionNI);
+            
+            // Event listeners para filtros
+            $('#btn-aplicar-filtros').on('click', aplicarFiltros);
+            $('#btn-limpiar-filtros').on('click', limpiarFiltros);
+            
+            // Aplicar filtros automáticamente cuando cambian los selects (excepto municipio y parroquia que ya tienen sus propios handlers)
+            $('#filtro-sector, #filtro-caso').on('change', aplicarFiltros);
+            
+            // Configurar eventos para formularios
+            $('#formNuevoBeneficiario').on('submit', function(e) {
+                e.preventDefault();
+                
+                // Validar formulario
+                const cedula = $('#cedula_beneficiario').val();
+                const nombres = $('#nombres').val();
+                const apellidos = $('#apellidos').val();
+                const genero = $('#genero').val();
+                const condicion = $('input[name="condicion_femenina"]:checked').val();
+                
+                // Validaciones básicas
+                if (!cedula || !nombres || !apellidos || !genero) {
+                    alert('Por favor, complete los campos requeridos: cédula, nombres, apellidos y género');
+                    return;
+                }
+                
+                // Validaciones específicas para género femenino
+                if (genero === 'F') {
+                    if (condicion === 'lactante') {
+                        const fechaBebe = $('#fecha_nacimiento_bebe_nuevo').val();
+                        if (!fechaBebe) {
+                            alert('Por favor, ingrese la fecha de nacimiento del bebé para la beneficiaria lactante');
+                            return;
+                        }
+                    } else if (condicion === 'gestante') {
+                        const semanas = $('#semanas_gestacion_nuevo').val();
+                        if (!semanas || semanas < 1 || semanas > 42) {
+                            alert('Por favor, ingrese un número válido de semanas de gestación (1-42)');
+                            return;
+                        }
+                    }
+                }
+                
+                // Enviar formulario
+                this.submit();
+            });
+            
+            $('#formEditarBeneficiario').on('submit', function(e) {
+                e.preventDefault();
+                
+                // Validar formulario
+                const cedula = $('#editar_cedula_beneficiario').val();
+                const nombres = $('#editar_nombres').val();
+                const apellidos = $('#editar_apellidos').val();
+                const genero = $('#editar_genero').val();
+                const condicion = $('input[name="condicion_femenina"]:checked').val();
+                
+                // Validaciones básicas
+                if (!cedula || !nombres || !apellidos || !genero) {
+                    alert('Por favor, complete los campos requeridos: cédula, nombres, apellidos y género');
+                    return;
+                }
+                
+                // Validaciones específicas para género femenino
+                if (genero === 'F') {
+                    if (condicion === 'lactante') {
+                        const fechaBebe = $('#editar_fecha_nacimiento_bebe').val();
+                        if (!fechaBebe) {
+                            alert('Por favor, ingrese la fecha de nacimiento del bebé para la beneficiaria lactante');
+                            return;
+                        }
+                    } else if (condicion === 'gestante') {
+                        const semanas = $('#editar_semanas_gestacion').val();
+                        if (!semanas || semanas < 1 || semanas > 42) {
+                            alert('Por favor, ingrese un número válido de semanas de gestación (1-42)');
+                            return;
+                        }
+                    }
+                }
+                
+                // Enviar formulario
+                this.submit();
+            });
+            
+            $('#formNuevoIngreso').on('submit', function(e) {
+                e.preventDefault();
+                
+                // Validar formulario
+                const cedula = $('#ni_cedula_beneficiario').val();
+                const nombres = $('#ni_nombres').val();
+                const apellidos = $('#ni_apellidos').val();
+                const genero = $('#ni_genero').val();
+                const condicion = $('input[name="condicion_femenina"]:checked').val();
+                
+                // Validaciones básicas
+                if (!cedula || !nombres || !apellidos || !genero) {
+                    alert('Por favor, complete los campos requeridos: cédula, nombres, apellidos y género');
+                    return;
+                }
+                
+                // Validaciones específicas para género femenino
+                if (genero === 'F') {
+                    if (condicion === 'lactante') {
+                        const fechaBebe = $('#ni_fecha_nacimiento_bebe').val();
+                        if (!fechaBebe) {
+                            alert('Por favor, ingrese la fecha de nacimiento del bebé para la beneficiaria lactante');
+                            return;
+                        }
+                    } else if (condicion === 'gestante') {
+                        const semanas = $('#ni_semanas_gestacion').val();
+                        if (!semanas || semanas < 1 || semanas > 42) {
+                            alert('Por favor, ingrese un número válido de semanas de gestación (1-42)');
+                            return;
+                        }
+                    }
+                }
+                
+                // Confirmar
+                if (confirm('¿Está seguro de guardar este nuevo ingreso?\n\nEste registro se guardará en la sección de "Nuevos Ingresos" y podrá ser incorporado posteriormente a la base de datos principal.')) {
+                    this.submit();
+                }
+            });
             
             // Ocultar modales al inicio
-            if (document.getElementById('nuevoBeneficiarioModal')) {
-                document.getElementById('nuevoBeneficiarioModal').style.display = 'none';
-            } else {
-                console.warn('Modal nuevo no encontrado');
-            }
+            $('#nuevoBeneficiarioModal, #nuevoIngresoModal, #editarBeneficiarioModal').hide();
             
-            if (document.getElementById('editarBeneficiarioModal')) {
-                document.getElementById('editarBeneficiarioModal').style.display = 'none';
-            } else {
-                console.warn('Modal editar no encontrado');
-            }
+            // Ocultar mensaje de filtros inicialmente
+            $('#mensaje-filtros').removeClass('show');
             
-            // Verificar que jQuery esté cargado
-            if (typeof jQuery === 'undefined') {
-                console.error('jQuery no está cargado');
-            } else {
-                console.log('jQuery versión:', jQuery.fn.jquery);
-            }
-            
-            // Verificar que DataTables esté cargado
-            if (typeof $.fn.dataTable === 'undefined') {
-                console.error('DataTables no está cargado');
-            } else {
-                console.log('DataTables cargado correctamente');
-            }
+            console.log('Sistema de beneficiarios inicializado correctamente');
         });
     </script>
 </body>
